@@ -81,6 +81,34 @@ void main() {
     expect(onDay.map((e) => e.kcal), unorderedEquals([200, 300]));
   });
 
+  test('watchDailySummaries groups by local calendar day and sums', () async {
+    await repo.add(sample(
+      timestamp: DateTime(2026, 4, 22, 8),
+      kcal: 400,
+      proteinG: 20.0,
+    ));
+    await repo.add(sample(
+      timestamp: DateTime(2026, 4, 22, 20),
+      kcal: 600,
+      proteinG: 40.0,
+    ));
+    await repo.add(sample(
+      timestamp: DateTime(2026, 4, 23, 12),
+      kcal: 300,
+      proteinG: 15.0,
+    ));
+
+    final summaries = await repo.watchDailySummaries().first;
+    expect(summaries, hasLength(2));
+    expect(summaries.first.day, DateTime(2026, 4, 23),
+        reason: 'newest day comes first');
+    expect(summaries.first.kcal, 300);
+    expect(summaries.first.proteinG, closeTo(15.0, 1e-9));
+    expect(summaries.last.day, DateTime(2026, 4, 22));
+    expect(summaries.last.kcal, 1000);
+    expect(summaries.last.proteinG, closeTo(60.0, 1e-9));
+  });
+
   test('watchDailyTotals sums kcal and protein for the given day', () async {
     await repo.add(sample(
       timestamp: DateTime(2026, 4, 23, 8),
