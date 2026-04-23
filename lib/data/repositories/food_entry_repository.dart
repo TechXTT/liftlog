@@ -41,15 +41,13 @@ class FoodEntryRepository {
   Future<int> delete(int id) =>
       (_db.delete(_db.foodEntries)..where((t) => t.id.equals(id))).go();
 
-  Stream<List<FoodEntry>> watchAll() =>
-      (_db.select(_db.foodEntries)
-            ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
-          .watch();
+  Stream<List<FoodEntry>> watchAll() => (_db.select(
+    _db.foodEntries,
+  )..orderBy([(t) => OrderingTerm.desc(t.timestamp)])).watch();
 
-  Future<List<FoodEntry>> listAll() =>
-      (_db.select(_db.foodEntries)
-            ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
-          .get();
+  Future<List<FoodEntry>> listAll() => (_db.select(
+    _db.foodEntries,
+  )..orderBy([(t) => OrderingTerm.desc(t.timestamp)])).get();
 
   Stream<List<FoodEntry>> watchByDate(DateTime day) {
     final range = DayRange(day);
@@ -71,9 +69,11 @@ class FoodEntryRepository {
   /// to exclusive), ordered by timestamp descending.
   Future<List<FoodEntry>> listRange(DateTime from, DateTime to) =>
       (_db.select(_db.foodEntries)
-            ..where((t) =>
-                t.timestamp.isBiggerOrEqualValue(from) &
-                t.timestamp.isSmallerThanValue(to))
+            ..where(
+              (t) =>
+                  t.timestamp.isBiggerOrEqualValue(from) &
+                  t.timestamp.isSmallerThanValue(to),
+            )
             ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
           .get();
 
@@ -100,6 +100,46 @@ class FoodEntryRepository {
     return DailyTotals(kcal: kcal, proteinG: protein);
   }
 
+  /// Returns the most recent distinct-by-name entries, newest first.
+  ///
+  /// Used by the Food tab's recent-foods quick-add strip. "Distinct" means
+  /// we keep only the newest entry per `name`; older rows with the same
+  /// name are collapsed away. `limit` caps the result length after
+  /// collapsing, so callers get a stable number of chips regardless of how
+  /// many duplicate rows exist upstream.
+  ///
+  /// The implementation is deliberately simple: pull every entry ordered
+  /// by timestamp descending, then group-by-name in Dart. A window-function
+  /// SQL variant would be faster at large row counts but isn't warranted
+  /// today.
+  Stream<List<FoodEntry>> watchRecentDistinctNames({int limit = 10}) {
+    return (_db.select(_db.foodEntries)
+          ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+        .watch()
+        .map((entries) => _collapseByName(entries, limit));
+  }
+
+  Future<List<FoodEntry>> listRecentDistinctNames({int limit = 10}) async {
+    final entries = await (_db.select(
+      _db.foodEntries,
+    )..orderBy([(t) => OrderingTerm.desc(t.timestamp)])).get();
+    return _collapseByName(entries, limit);
+  }
+
+  /// Collapses [entries] (already newest-first) to the first hit per `name`,
+  /// then caps at [limit]. Empty names are kept as a single bucket — matches
+  /// how the food form treats them elsewhere.
+  List<FoodEntry> _collapseByName(List<FoodEntry> entries, int limit) {
+    final seen = <String>{};
+    final out = <FoodEntry>[];
+    for (final e in entries) {
+      if (!seen.add(e.name)) continue;
+      out.add(e);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   Stream<List<DailySummary>> watchDailySummaries() {
     return (_db.select(_db.foodEntries)
           ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
@@ -108,16 +148,20 @@ class FoodEntryRepository {
   }
 
   Future<List<DailySummary>> listDailySummaries() async {
-    final entries = await (_db.select(_db.foodEntries)
-          ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
-        .get();
+    final entries = await (_db.select(
+      _db.foodEntries,
+    )..orderBy([(t) => OrderingTerm.desc(t.timestamp)])).get();
     return _summarize(entries);
   }
 
   List<DailySummary> _summarize(List<FoodEntry> entries) {
     final buckets = <DateTime, List<FoodEntry>>{};
     for (final e in entries) {
-      final day = DateTime(e.timestamp.year, e.timestamp.month, e.timestamp.day);
+      final day = DateTime(
+        e.timestamp.year,
+        e.timestamp.month,
+        e.timestamp.day,
+      );
       buckets.putIfAbsent(day, () => []).add(e);
     }
     final summaries = buckets.entries.map((b) {
@@ -128,8 +172,7 @@ class FoodEntryRepository {
         protein += e.proteinG;
       }
       return DailySummary(day: b.key, kcal: kcal, proteinG: protein);
-    }).toList()
-      ..sort((a, b) => b.day.compareTo(a.day));
+    }).toList()..sort((a, b) => b.day.compareTo(a.day));
     return summaries;
   }
 }
