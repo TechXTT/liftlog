@@ -6,11 +6,16 @@ import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
+import '../../ui/timestamp_field.dart';
 
 class BodyWeightFormScreen extends ConsumerStatefulWidget {
-  const BodyWeightFormScreen({super.key, this.entry});
+  const BodyWeightFormScreen({super.key, this.entry, this.timestampPicker});
 
   final BodyWeightLog? entry;
+
+  /// Optional — only set by widget tests that want a deterministic timestamp
+  /// without driving the Material date+time dialogs. Null in production.
+  final TimestampPicker? timestampPicker;
 
   @override
   ConsumerState<BodyWeightFormScreen> createState() =>
@@ -21,6 +26,7 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _valueController;
   late WeightUnit _unit;
+  late DateTime _timestamp;
   bool _saving = false;
 
   bool get _isEdit => widget.entry != null;
@@ -29,9 +35,11 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
   void initState() {
     super.initState();
     final e = widget.entry;
-    _valueController =
-        TextEditingController(text: e == null ? '' : e.value.toString());
+    _valueController = TextEditingController(
+      text: e == null ? '' : e.value.toString(),
+    );
     _unit = e?.unit ?? WeightUnit.kg;
+    _timestamp = e?.timestamp ?? DateTime.now();
   }
 
   @override
@@ -48,22 +56,30 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
 
     try {
       if (_isEdit) {
-        await repo.update(widget.entry!.copyWith(value: value, unit: _unit));
+        await repo.update(
+          widget.entry!.copyWith(
+            timestamp: _timestamp,
+            value: value,
+            unit: _unit,
+          ),
+        );
       } else {
-        await repo.add(BodyWeightLogsCompanion.insert(
-          timestamp: DateTime.now(),
-          value: value,
-          unit: _unit,
-        ));
+        await repo.add(
+          BodyWeightLogsCompanion.insert(
+            timestamp: _timestamp,
+            value: value,
+            unit: _unit,
+          ),
+        );
       }
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save weight: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save weight: $e')));
     }
   }
 
@@ -100,9 +116,9 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete weight: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not delete weight: $e')));
     }
   }
 
@@ -127,8 +143,9 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
               TextFormField(
                 controller: _valueController,
                 decoration: const InputDecoration(labelText: 'Weight'),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textInputAction: TextInputAction.done,
                 validator: (v) {
                   final n = double.tryParse((v ?? '').trim());
@@ -148,6 +165,14 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
                 onChanged: (u) {
                   if (u != null) setState(() => _unit = u);
                 },
+              ),
+              const SizedBox(height: 12),
+              TimestampField(
+                initialValue: _timestamp,
+                validator: futureGuardValidator,
+                enabled: !_saving,
+                picker: widget.timestampPicker,
+                onChanged: (t) => setState(() => _timestamp = t),
               ),
               if (_isEdit) ...[
                 const SizedBox(height: 32),
