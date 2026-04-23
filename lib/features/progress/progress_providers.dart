@@ -35,6 +35,36 @@ final kcalSeriesProvider = FutureProvider<KcalSeries>((ref) async {
   return buildKcalSeries(entries, from: range.from, to: range.to);
 });
 
+/// Summary metrics rendered in the card above the window selector. Reads
+/// the same `[from, to)` range as [weightSeriesProvider] / [kcalSeriesProvider]
+/// so the four tiles and the charts below are always in sync.
+///
+/// We re-`await` the weight series here instead of calling
+/// `buildWeightSeries` a second time because Riverpod's dependency graph
+/// handles the caching — when the window changes, both providers re-run
+/// once, not twice. Sessions come via `listRangeWithSets` so the aggregator
+/// can count completed sessions without the UI touching Drift directly.
+final progressSummaryProvider = FutureProvider<ProgressSummary>((ref) async {
+  final window = ref.watch(progressWindowProvider);
+  final now = ref.watch(progressNowProvider);
+  final range = resolveWindow(window, now: now);
+
+  final foodRepo = ref.watch(foodEntryRepositoryProvider);
+  final sessionRepo = ref.watch(workoutSessionRepositoryProvider);
+
+  final foods = await foodRepo.listRange(range.from, range.to);
+  final weightSeries = await ref.watch(weightSeriesProvider.future);
+  final sessionsWithSets = await sessionRepo.listRangeWithSets(range.from, range.to);
+
+  return buildProgressSummary(
+    foods: foods,
+    weightSeries: weightSeries,
+    sessionsWithSets: sessionsWithSets,
+    from: range.from,
+    to: range.to,
+  );
+});
+
 /// Weekly completed-set volume for the trailing 8 ISO weeks. Independent of
 /// the 7d / 30d / all selector — the brief fixes this section at 8 weeks.
 /// Uses the one-shot `listRangeWithSets` repository method (not `watch*`) so

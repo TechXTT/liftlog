@@ -37,6 +37,25 @@ ExerciseSet _set(int sessionId, WorkoutSetStatus status, {int order = 0}) =>
       orderIndex: order,
     );
 
+WorkoutSession _sessionWithEnd(int id, DateTime startedAt, DateTime? endedAt) =>
+    WorkoutSession(
+      id: id,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      note: null,
+    );
+
+FoodEntry _foodWithProtein(DateTime t, int kcal, double proteinG) => FoodEntry(
+      id: 1,
+      timestamp: t,
+      name: '',
+      kcal: kcal,
+      proteinG: proteinG,
+      mealType: MealType.other,
+      entryType: FoodEntryType.manual,
+      note: null,
+    );
+
 void main() {
   group('resolveWindow', () {
     final now = DateTime(2026, 4, 23, 15, 30); // mid-day
@@ -319,6 +338,281 @@ void main() {
       );
       expect(s.completedSets[6], 1, reason: 'prior week (Mon 4/13)');
       expect(s.completedSets[7], 0);
+    });
+  });
+
+  group('calendarDaysInWindow', () {
+    test('bounded 7-day window returns 7', () {
+      expect(
+        calendarDaysInWindow(
+          from: DateTime(2026, 4, 17),
+          to: DateTime(2026, 4, 24),
+        ),
+        7,
+      );
+    });
+
+    test('single-day window returns 1', () {
+      expect(
+        calendarDaysInWindow(
+          from: DateTime(2026, 4, 23),
+          to: DateTime(2026, 4, 24),
+        ),
+        1,
+      );
+    });
+
+    test('from >= to returns 0', () {
+      expect(
+        calendarDaysInWindow(
+          from: DateTime(2026, 4, 24),
+          to: DateTime(2026, 4, 24),
+        ),
+        0,
+      );
+    });
+
+    test('truncates sub-day times to midnight on both ends', () {
+      // from = 4/17 23:59 → truncates to 4/17 00:00.
+      // to   = 4/24 00:01 → truncates to 4/24 00:00.
+      expect(
+        calendarDaysInWindow(
+          from: DateTime(2026, 4, 17, 23, 59),
+          to: DateTime(2026, 4, 24, 0, 1),
+        ),
+        7,
+      );
+    });
+  });
+
+  group('buildProgressSummary', () {
+    final now = DateTime(2026, 4, 23, 15, 30); // Thursday
+    final range = resolveWindow(ProgressWindow.sevenDays, now: now);
+
+    test('populated 7d window: averages + delta + sessions all non-null', () {
+      // 2 food entries across 2 days inside the window → denominator is 7
+      // (calendar days), NOT 2. This is the core "averages use calendar
+      // days, not logged-day count" contract (AC #2).
+      final foods = [
+        _foodWithProtein(DateTime(2026, 4, 19, 12), 700, 40.0),
+        _foodWithProtein(DateTime(2026, 4, 23, 13), 1400, 80.0),
+      ];
+      final weight = buildWeightSeries([
+        _weight(DateTime(2026, 4, 17), 80.0, WeightUnit.kg),
+        _weight(DateTime(2026, 4, 23), 80.7, WeightUnit.kg),
+      ]);
+      final session = _sessionWithEnd(
+        1,
+        DateTime(2026, 4, 22, 18),
+        DateTime(2026, 4, 22, 19),
+      );
+      final grouped = [
+        (
+          session: session,
+          sets: <ExerciseSet>[_set(1, WorkoutSetStatus.completed)],
+        ),
+      ];
+      final s = buildProgressSummary(
+        foods: foods,
+        weightSeries: weight,
+        sessionsWithSets: grouped,
+        from: range.from,
+        to: range.to,
+      );
+      // (700 + 1400) / 7 = 300 kcal/day.
+      expect(s.avgKcalPerDay, 300);
+      // (40 + 80) / 7 ≈ 17.14 g/day. Compare with tolerance for floating-point.
+      expect(s.avgProteinGPerDay, closeTo(120.0 / 7.0, 0.0001));
+      // Delta is 80.7 - 80.0 = 0.7 kg (rounding tolerance for FP).
+      expect(s.weightDelta, closeTo(0.7, 0.0001));
+      expect(s.weightDeltaUnit, WeightUnit.kg);
+      expect(s.sessionsCompleted, 1);
+    });
+
+    test('averages divide by 7 calendar days, not 2 logged days (AC #2)', () {
+      // Only 2 days have entries, but the window is 7 calendar days wide.
+      // Denominator must be 7 — not 2. Testing the exact kcal value catches
+      // any accidental regression to logged-day arithmetic.
+      final foods = [
+        _foodWithProtein(DateTime(2026, 4, 19, 9), 1400, 100.0),
+        _foodWithProtein(DateTime(2026, 4, 23, 9), 700, 50.0),
+      ];
+      final s = buildProgressSummary(
+        foods: foods,
+        weightSeries: const WeightSeries(
+          points: [],
+          dominantUnit: null,
+          mixedUnits: false,
+        ),
+        sessionsWithSets: const [],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.avgKcalPerDay, 300, reason: '(1400+700)/7 = 300');
+      expect(s.avgProteinGPerDay, closeTo(150.0 / 7.0, 0.0001));
+    });
+
+    test('empty window: averages null, delta null, sessions 0', () {
+      final weight = buildWeightSeries(const []);
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: weight,
+        sessionsWithSets: const [],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.avgKcalPerDay, isNull);
+      expect(s.avgProteinGPerDay, isNull);
+      expect(s.weightDelta, isNull);
+      expect(s.weightDeltaUnit, isNull);
+      expect(s.sessionsCompleted, 0);
+    });
+
+    test('single-unit delta: last minus first in dominant unit', () {
+      // 3 kg points inside the window. Delta = 81.0 - 80.0 = 1.0 kg.
+      final weight = buildWeightSeries([
+        _weight(DateTime(2026, 4, 17), 80.0, WeightUnit.kg),
+        _weight(DateTime(2026, 4, 20), 80.5, WeightUnit.kg),
+        _weight(DateTime(2026, 4, 23), 81.0, WeightUnit.kg),
+      ]);
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: weight,
+        sessionsWithSets: const [],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.weightDelta, closeTo(1.0, 0.0001));
+      expect(s.weightDeltaUnit, WeightUnit.kg);
+    });
+
+    test('mixed-unit window: weight delta is null (never silently converted)',
+        () {
+      // Trust rule: don't fabricate a delta that crosses kg↔lb, even if we
+      // could filter to the dominant unit and have 2+ points left.
+      final weight = buildWeightSeries([
+        _weight(DateTime(2026, 4, 17), 176.0, WeightUnit.lb),
+        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+        _weight(DateTime(2026, 4, 23), 80.5, WeightUnit.kg),
+      ]);
+      expect(weight.mixedUnits, isTrue); // sanity check
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: weight,
+        sessionsWithSets: const [],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.weightDelta, isNull);
+      expect(s.weightDeltaUnit, isNull);
+    });
+
+    test('single weight point: delta is null', () {
+      final weight = buildWeightSeries([
+        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+      ]);
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: weight,
+        sessionsWithSets: const [],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.weightDelta, isNull);
+      expect(s.weightDeltaUnit, isNull);
+    });
+
+    test('in-progress sessions do not count toward sessionsCompleted', () {
+      // Session started in-window but never ended → endedAt is null → skip.
+      final inProgress = _sessionWithEnd(
+        1,
+        DateTime(2026, 4, 22, 18),
+        null,
+      );
+      final finished = _sessionWithEnd(
+        2,
+        DateTime(2026, 4, 21, 18),
+        DateTime(2026, 4, 21, 19),
+      );
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: const WeightSeries(
+          points: [],
+          dominantUnit: null,
+          mixedUnits: false,
+        ),
+        sessionsWithSets: [
+          (session: inProgress, sets: const <ExerciseSet>[]),
+          (session: finished, sets: const <ExerciseSet>[]),
+        ],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.sessionsCompleted, 1);
+    });
+
+    test('sessions outside window are excluded', () {
+      // Session ended but startedAt is before the window → not counted.
+      final out = _sessionWithEnd(
+        1,
+        DateTime(2026, 4, 10, 18),
+        DateTime(2026, 4, 10, 19),
+      );
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: const WeightSeries(
+          points: [],
+          dominantUnit: null,
+          mixedUnits: false,
+        ),
+        sessionsWithSets: [
+          (session: out, sets: const <ExerciseSet>[]),
+        ],
+        from: range.from,
+        to: range.to,
+      );
+      expect(s.sessionsCompleted, 0);
+    });
+
+    test('all-window, no entries: averages null (no honest denominator)', () {
+      final allRange = resolveWindow(ProgressWindow.all, now: now);
+      final s = buildProgressSummary(
+        foods: const [],
+        weightSeries: const WeightSeries(
+          points: [],
+          dominantUnit: null,
+          mixedUnits: false,
+        ),
+        sessionsWithSets: const [],
+        from: allRange.from,
+        to: allRange.to,
+      );
+      expect(s.avgKcalPerDay, isNull);
+      expect(s.avgProteinGPerDay, isNull);
+    });
+
+    test('all-window with entries: divides by days from oldest entry to today',
+        () {
+      // Oldest entry on 4/20, "now" is 4/23 → span is 4 calendar days
+      // (4/20, 4/21, 4/22, 4/23). Totals 2000 kcal / 4 = 500 kcal/day.
+      final foods = [
+        _foodWithProtein(DateTime(2026, 4, 20, 12), 1200, 60.0),
+        _foodWithProtein(DateTime(2026, 4, 23, 12), 800, 40.0),
+      ];
+      final allRange = resolveWindow(ProgressWindow.all, now: now);
+      final s = buildProgressSummary(
+        foods: foods,
+        weightSeries: const WeightSeries(
+          points: [],
+          dominantUnit: null,
+          mixedUnits: false,
+        ),
+        sessionsWithSets: const [],
+        from: allRange.from,
+        to: allRange.to,
+      );
+      expect(s.avgKcalPerDay, 500);
+      expect(s.avgProteinGPerDay, closeTo(25.0, 0.0001));
     });
   });
 }

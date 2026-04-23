@@ -82,6 +82,31 @@ class KcalSeries {
 /// bucketing stays testable without touching [DateTime.now].
 DateTime _dayOf(DateTime t) => DateTime(t.year, t.month, t.day);
 
+/// Number of calendar days in the `[from, to)` window. `from` is inclusive,
+/// `to` is exclusive; both are truncated to local-midnight before the count
+/// so a partial day on either end still counts as 1.
+///
+/// We walk by calendar-day increments (`DateTime(y, m, d + 1)`) rather than
+/// dividing `Duration.inDays` — on DST transition days two consecutive civil
+/// midnights are 23 or 25 wall-clock hours apart, and `.inDays` rounds the
+/// short direction. Calendar-day arithmetic is the only way to stay exact.
+///
+/// Used as the denominator for the Progress summary's averages: dividing by
+/// the number of calendar days in the window (not the number of logged days)
+/// is the "seven-day average" a user expects, even with gaps.
+int calendarDaysInWindow({required DateTime from, required DateTime to}) {
+  final start = _dayOf(from);
+  final end = _dayOf(to);
+  if (!start.isBefore(end)) return 0;
+  var count = 0;
+  var cursor = start;
+  while (cursor.isBefore(end)) {
+    count += 1;
+    cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
+  }
+  return count;
+}
+
 /// Returns the local-midnight Monday of the ISO week that [t] falls in.
 /// [DateTime.weekday] is `1` for Monday through `7` for Sunday, so subtracting
 /// `(weekday - 1)` civil days always lands on that week's Monday. Calendar
@@ -274,4 +299,132 @@ WeeklyVolumeSeries buildWeeklyVolumeSeries(
   }
 
   return WeeklyVolumeSeries(weekStarts: weekStarts, completedSets: counts);
+}
+
+/// The at-a-glance summary rendered above the window selector on the
+/// Progress tab. Every field is nullable because the card shows an em-dash
+/// for any metric that can't be computed honestly (no data, mixed units,
+/// etc) — the alternative would be to fabricate a `0` that reads as "logged
+/// zero", and that's a trust-rule violation.
+///
+/// Nullability rules (deliberately encoded in the aggregator so the widget
+/// stays dumb):
+/// - [avgKcalPerDay], [avgProteinGPerDay]: `null` when the window contains
+///   zero calendar days (shouldn't happen in practice) or when there are no
+///   food entries at all in the `all`-window case (no anchor for the day
+///   count). Otherwise we divide total kcal / protein by the number of
+///   *calendar* days in the window — not the count of logged days — so a
+///   user with 2 logged days in a 7-day window sees `total / 7`, which is
+///   the "average day" number they expect.
+/// - [weightDelta]: `null` when the weight series has fewer than 2 points
+///   in the dominant unit, OR when the window has mixed units. We never
+///   display a delta that crosses a unit boundary (no silent conversion).
+/// - [weightDeltaUnit]: null iff [weightDelta] is null.
+/// - [sessionsCompleted]: `0` is a valid value — never null. A window with
+///   no finished sessions renders "0 completed", not an em-dash, because
+///   that count *is* meaningful: it means "you finished nothing in this
+///   window", which is the honest read.
+class ProgressSummary {
+  const ProgressSummary({
+    required this.avgKcalPerDay,
+    required this.avgProteinGPerDay,
+    required this.weightDelta,
+    required this.weightDeltaUnit,
+    required this.sessionsCompleted,
+  });
+
+  final int? avgKcalPerDay;
+  final double? avgProteinGPerDay;
+  final double? weightDelta;
+  final WeightUnit? weightDeltaUnit;
+  final int sessionsCompleted;
+}
+
+/// Builds a [ProgressSummary] for the `[from, to)` window.
+///
+/// Inputs are already-filtered lists from the repositories (so this stays
+/// pure-Dart and trivially unit-testable). The caller is responsible for
+/// passing lists filtered to the window — we don't re-filter here, to keep
+/// a single source of truth for the window math.
+///
+/// `weightSeries` carries `mixedUnits` and `dominantUnit`; both decisions
+/// about the delta flow through it. When `mixedUnits == true`, the delta
+/// is `null` even if the filtered series has 2+ points, because mixing
+/// units across a single metric is exactly what the trust rule forbids.
+ProgressSummary buildProgressSummary({
+  required List<FoodEntry> foods,
+  required WeightSeries weightSeries,
+  required List<({WorkoutSession session, List<ExerciseSet> sets})> sessionsWithSets,
+  required DateTime from,
+  required DateTime to,
+}) {
+  // --- Averages: divide by *calendar* days, not logged days. ---
+  // If there are no food entries in the window we render em-dashes rather
+  // than "0 kcal/day": a synthesized zero would read as "you logged zero",
+  // which is a different claim than "nothing to average". Trust rule:
+  // empty data must surface as em-dash, never as a fabricated number.
+  //
+  // For bounded windows the denominator is the number of calendar days in
+  // the window. For the all-window (from == epoch-0), the denominator is
+  // the number of calendar days between the oldest entry's day and `to` —
+  // otherwise we'd divide by thousands of empty days back to 1970.
+  int? avgKcal;
+  double? avgProtein;
+  if (foods.isNotEmpty) {
+    final DateTime effectiveFrom;
+    if (from.millisecondsSinceEpoch <= 0) {
+      final oldest =
+          foods.map((e) => e.timestamp).reduce((a, b) => a.isBefore(b) ? a : b);
+      effectiveFrom = _dayOf(oldest);
+    } else {
+      effectiveFrom = from;
+    }
+    final days = calendarDaysInWindow(from: effectiveFrom, to: to);
+    if (days > 0) {
+      var totalKcal = 0;
+      var totalProtein = 0.0;
+      for (final e in foods) {
+        totalKcal += e.kcal;
+        totalProtein += e.proteinG;
+      }
+      avgKcal = (totalKcal / days).round();
+      avgProtein = totalProtein / days;
+    }
+  }
+
+  // --- Weight delta: last - first, only in dominant unit. ---
+  // Trust rule: never synthesize a delta that crosses kg↔lb. Both the
+  // `mixedUnits == true` case and the `<2 points` case resolve to null,
+  // and both are covered by dedicated unit tests.
+  double? weightDelta;
+  WeightUnit? weightDeltaUnit;
+  if (!weightSeries.mixedUnits &&
+      weightSeries.points.length >= 2 &&
+      weightSeries.dominantUnit != null) {
+    final first = weightSeries.points.first.value;
+    final last = weightSeries.points.last.value;
+    weightDelta = last - first;
+    weightDeltaUnit = weightSeries.dominantUnit;
+  }
+
+  // --- Sessions completed in window. ---
+  // "Completed" means `endedAt != null` — an in-progress session doesn't
+  // count toward a window's completion metric. Window membership is by
+  // `startedAt`, matching how every other range filter in this file works.
+  var sessionsCompleted = 0;
+  for (final g in sessionsWithSets) {
+    final s = g.session;
+    if (s.endedAt == null) continue;
+    if (s.startedAt.isBefore(from)) continue;
+    if (!s.startedAt.isBefore(to)) continue;
+    sessionsCompleted += 1;
+  }
+
+  return ProgressSummary(
+    avgKcalPerDay: avgKcal,
+    avgProteinGPerDay: avgProtein,
+    weightDelta: weightDelta,
+    weightDeltaUnit: weightDeltaUnit,
+    sessionsCompleted: sessionsCompleted,
+  );
 }

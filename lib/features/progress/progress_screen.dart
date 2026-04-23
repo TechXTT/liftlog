@@ -5,6 +5,7 @@ import '../../ui/labels.dart';
 import 'kcal_bars.dart';
 import 'progress_data.dart';
 import 'progress_providers.dart';
+import 'summary_card.dart';
 import 'weekly_volume_bars.dart';
 import 'weight_sparkline.dart';
 
@@ -26,8 +27,11 @@ class ProgressScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
+          // Order: summary card (headline) → window selector (re-slice) →
+          // charts (deep-dive). Rationale in the issue (#34).
+          const SummaryCard(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: SizedBox(
               width: double.infinity,
               child: SegmentedButton<ProgressWindow>(
