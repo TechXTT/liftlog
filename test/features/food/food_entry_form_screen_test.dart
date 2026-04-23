@@ -8,6 +8,7 @@ import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
 import 'package:liftlog_app/features/food/food_entry_form_screen.dart';
+import 'package:liftlog_app/features/food/food_log_screen.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
 
 Widget _host(AppDatabase db, Widget child) {
@@ -130,4 +131,70 @@ void main() {
 
     expect(await repo.listAll(), isEmpty);
   });
+
+  testWidgets(
+      'add as estimate: toggle on → save → entry typed as estimate and '
+      'badge appears on the log', (tester) async {
+    await tester.pumpWidget(_host(db, const FoodEntryFormScreen()));
+
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Name'), 'Guess Bowl');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Calories (kcal)'), '500');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Protein (g)'), '25');
+
+    await tester.tap(find.text('This is an estimate'));
+    await tester.pump();
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final entries = await repo.listAll();
+    expect(entries, hasLength(1));
+    expect(entries.first.entryType, FoodEntryType.estimate);
+
+    // Unmount the form (whose Navigator is in an odd state after pop-to-empty)
+    // before mounting a fresh FoodLogScreen tree.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+
+    await tester.pumpWidget(_host(db, const FoodLogScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Guess Bowl'), findsOneWidget);
+    expect(find.text('Est.'), findsOneWidget);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('edit form: flipping estimate toggle off rewrites type to manual',
+      (tester) async {
+    await repo.add(FoodEntriesCompanion.insert(
+      timestamp: DateTime.now(),
+      name: const Value('Eyeballed soup'),
+      kcal: 250,
+      proteinG: 8.0,
+      mealType: MealType.dinner,
+      entryType: FoodEntryType.estimate,
+    ));
+    final entry = (await repo.listAll()).single;
+
+    await tester.pumpWidget(_host(db, FoodEntryFormScreen(entry: entry)));
+    await tester.pumpAndSettle();
+
+    // Toggle off — flips estimate -> manual.
+    await tester.tap(find.text('This is an estimate'));
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final after = (await repo.listAll()).single;
+    expect(after.entryType, FoodEntryType.manual);
+  });
+}
+
+Future<void> _drainDriftTimers(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox());
+  await tester.pump(const Duration(milliseconds: 1));
 }
