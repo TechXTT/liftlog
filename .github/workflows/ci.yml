@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # Cancel older runs on the same ref — saves minutes on iterative pushes.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: analyze + test + iOS build
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Pinned to match CLAUDE.md's "Tech stack (actual)" section. Bump
+          # in lockstep with local Flutter upgrades.
+          flutter-version: '3.41.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        # --timeout=60s matches our local convention for the arch test + Drift
+        # integration test; widget tests finish in well under a second each.
+        run: flutter test --timeout=60s
+
+      - name: Build iOS (debug, no codesign)
+        # Catches Podfile / Info.plist / asset-path regressions that the other
+        # steps miss. No signing, no simulator boot, no device — code-level
+        # build validation only (matches the 2026-04-23 PM verification policy).
+        run: flutter build ios --debug --no-codesign

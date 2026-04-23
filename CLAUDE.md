@@ -117,7 +117,19 @@ Keep `pubspec.yaml` dependencies minimal. Every new dependency must be justified
 - PR title: `#<issue> — <short summary>`.
 - One commit per PR when feasible; if multi-commit, each commit tells a distinct story.
 - PM verifies PR base = `main` and commit scope on PR-open, before merge.
+- **Do not merge until required CI checks are green.** See CI section below.
 - Merge via `--rebase --delete-branch`.
+
+## CI (GitHub Actions)
+Workflow at `.github/workflows/ci.yml` runs on every push to `main` and every pull request targeting `main`. On `macos-latest` (for the iOS build step), it executes in order:
+1. `flutter pub get`
+2. `flutter analyze` — must be clean.
+3. `flutter test --timeout=60s` — must pass.
+4. `flutter build ios --debug --no-codesign` — catches Podfile / Info.plist / asset regressions.
+
+Required for merge: all four steps green. Local subagents / PM should still run the same commands before pushing — CI is independent verification, not a replacement for local checks.
+
+Pinned Flutter version in CI must match the "Tech stack (actual)" section above. Bump both together.
 
 ## Gitignore
 - `vault/` **must** stay in `.gitignore`. Vault is long-term memory on disk, never committed.
