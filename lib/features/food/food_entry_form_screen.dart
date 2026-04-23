@@ -7,11 +7,16 @@ import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
+import '../../ui/timestamp_field.dart';
 
 class FoodEntryFormScreen extends ConsumerStatefulWidget {
-  const FoodEntryFormScreen({super.key, this.entry});
+  const FoodEntryFormScreen({super.key, this.entry, this.timestampPicker});
 
   final FoodEntry? entry;
+
+  /// Optional — only set by widget tests that want a deterministic timestamp
+  /// without driving the Material date+time dialogs. Null in production.
+  final TimestampPicker? timestampPicker;
 
   @override
   ConsumerState<FoodEntryFormScreen> createState() =>
@@ -25,6 +30,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
   late final TextEditingController _proteinController;
   late MealType _mealType;
   late bool _isEstimate;
+  late DateTime _timestamp;
   bool _saving = false;
 
   bool get _isEdit => widget.entry != null;
@@ -40,10 +46,12 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     final e = widget.entry;
     _nameController = TextEditingController(text: e?.name ?? '');
     _kcalController = TextEditingController(text: e == null ? '' : '${e.kcal}');
-    _proteinController =
-        TextEditingController(text: e == null ? '' : e.proteinG.toString());
+    _proteinController = TextEditingController(
+      text: e == null ? '' : e.proteinG.toString(),
+    );
     _mealType = e?.mealType ?? MealType.other;
     _isEstimate = e?.entryType == FoodEntryType.estimate;
+    _timestamp = e?.timestamp ?? DateTime.now();
   }
 
   @override
@@ -71,31 +79,36 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
         // stored type is the safe default).
         final current = widget.entry!.entryType;
         final nextType = _canFlipType(current) ? newType : current;
-        await repo.update(widget.entry!.copyWith(
-          name: name,
-          kcal: kcal,
-          proteinG: protein,
-          mealType: _mealType,
-          entryType: nextType,
-        ));
+        await repo.update(
+          widget.entry!.copyWith(
+            timestamp: _timestamp,
+            name: name,
+            kcal: kcal,
+            proteinG: protein,
+            mealType: _mealType,
+            entryType: nextType,
+          ),
+        );
       } else {
-        await repo.add(FoodEntriesCompanion.insert(
-          timestamp: DateTime.now(),
-          name: Value(name),
-          kcal: kcal,
-          proteinG: protein,
-          mealType: _mealType,
-          entryType: newType,
-        ));
+        await repo.add(
+          FoodEntriesCompanion.insert(
+            timestamp: _timestamp,
+            name: Value(name),
+            kcal: kcal,
+            proteinG: protein,
+            mealType: _mealType,
+            entryType: newType,
+          ),
+        );
       }
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save entry: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save entry: $e')));
     }
   }
 
@@ -150,9 +163,9 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete entry: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not delete entry: $e')));
     }
   }
 
@@ -194,6 +207,14 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
                 },
               ),
               const SizedBox(height: 12),
+              TimestampField(
+                initialValue: _timestamp,
+                validator: futureGuardValidator,
+                enabled: !_saving,
+                picker: widget.timestampPicker,
+                onChanged: (t) => setState(() => _timestamp = t),
+              ),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _kcalController,
                 decoration: const InputDecoration(labelText: 'Calories (kcal)'),
@@ -210,8 +231,9 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
               TextFormField(
                 controller: _proteinController,
                 decoration: const InputDecoration(labelText: 'Protein (g)'),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textInputAction: TextInputAction.done,
                 validator: (v) {
                   final n = double.tryParse((v ?? '').trim());

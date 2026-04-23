@@ -8,6 +8,7 @@ import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
 import 'package:liftlog_app/features/body_weight/body_weight_form_screen.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
+import 'package:liftlog_app/ui/timestamp_field.dart';
 
 Widget _host(AppDatabase db, Widget child) {
   return ProviderScope(
@@ -31,11 +32,13 @@ void main() {
     double value = 80.0,
     WeightUnit unit = WeightUnit.kg,
   }) async {
-    await repo.add(BodyWeightLogsCompanion.insert(
-      timestamp: DateTime.now(),
-      value: value,
-      unit: unit,
-    ));
+    await repo.add(
+      BodyWeightLogsCompanion.insert(
+        timestamp: DateTime.now(),
+        value: value,
+        unit: unit,
+      ),
+    );
     return (await repo.listAll()).single;
   }
 
@@ -55,7 +58,9 @@ void main() {
   testWidgets('saves with default unit kg', (tester) async {
     await tester.pumpWidget(_host(db, const BodyWeightFormScreen()));
     await tester.enterText(
-        find.widgetWithText(TextFormField, 'Weight'), '80.5');
+      find.widgetWithText(TextFormField, 'Weight'),
+      '80.5',
+    );
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -73,8 +78,11 @@ void main() {
 
     final after = (await repo.listAll()).single;
     expect(after.value, 176.0);
-    expect(after.unit, WeightUnit.lb,
-        reason: 'unit must not be silently converted on load');
+    expect(
+      after.unit,
+      WeightUnit.lb,
+      reason: 'unit must not be silently converted on load',
+    );
   });
 
   testWidgets('edit updates value and keeps unit', (tester) async {
@@ -84,7 +92,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.widgetWithText(TextFormField, 'Weight'), '79.5');
+      find.widgetWithText(TextFormField, 'Weight'),
+      '79.5',
+    );
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -120,4 +130,79 @@ void main() {
 
     expect(await repo.listAll(), isEmpty);
   });
+
+  testWidgets('add form: picked past timestamp persists with that timestamp', (
+    tester,
+  ) async {
+    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+    final picked = DateTime(
+      twoDaysAgo.year,
+      twoDaysAgo.month,
+      twoDaysAgo.day,
+      8,
+      15,
+    );
+
+    await tester.pumpWidget(
+      _host(
+        db,
+        BodyWeightFormScreen(timestampPicker: (ctx, current) async => picked),
+      ),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Weight'),
+      '79.0',
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(TimestampField),
+        matching: find.byType(InkWell),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final logs = await repo.listAll();
+    expect(logs, hasLength(1));
+    expect(logs.first.timestamp, picked);
+    expect(logs.first.value, 79.0);
+  });
+
+  testWidgets(
+    'add form: timestamp >1h in the future blocks save (no new row)',
+    (tester) async {
+      final future = DateTime.now().add(const Duration(hours: 2));
+
+      await tester.pumpWidget(
+        _host(
+          db,
+          BodyWeightFormScreen(timestampPicker: (ctx, current) async => future),
+        ),
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Weight'),
+        '79.0',
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(TimestampField),
+          matching: find.byType(InkWell),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(await repo.listAll(), isEmpty);
+      expect(
+        find.text('Time cannot be more than 1 hour in the future'),
+        findsOneWidget,
+      );
+    },
+  );
 }
