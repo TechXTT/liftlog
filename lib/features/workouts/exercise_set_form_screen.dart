@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
+import '../../ui/delete_confirm.dart';
 import '../../ui/labels.dart';
+import '../../ui/show_save_error.dart';
 
 class ExerciseSetFormScreen extends ConsumerStatefulWidget {
   const ExerciseSetFormScreen({
@@ -88,32 +90,18 @@ class _ExerciseSetFormScreenState extends ConsumerState<ExerciseSetFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save set: $e')),
-      );
+      showSaveError(context, 'save set', e);
     }
   }
 
   Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete set?'),
-        content: const Text('This cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await showDeleteConfirm(
+      context,
+      title: 'Delete set?',
+      message: 'This cannot be undone.',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
     final repo = ref.read(exerciseSetRepositoryProvider);
@@ -124,9 +112,7 @@ class _ExerciseSetFormScreenState extends ConsumerState<ExerciseSetFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete set: $e')),
-      );
+      showSaveError(context, 'delete set', e);
     }
   }
 

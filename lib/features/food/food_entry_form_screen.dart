@@ -5,9 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
+import '../../ui/delete_confirm.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
+import '../../ui/show_save_error.dart';
 import '../../ui/timestamp_field.dart';
+
+/// Soft cap on the free-form note field. `maxLength` on [TextField] enforces
+/// this at the UI level; the DB column is unconstrained text.
+const int kFoodNoteMaxLength = 200;
 
 class FoodEntryFormScreen extends ConsumerStatefulWidget {
   const FoodEntryFormScreen({super.key, this.entry, this.timestampPicker});
@@ -28,6 +34,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _kcalController;
   late final TextEditingController _proteinController;
+  late final TextEditingController _noteController;
   late MealType _mealType;
   late bool _isEstimate;
   late DateTime _timestamp;
@@ -49,6 +56,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     _proteinController = TextEditingController(
       text: e == null ? '' : e.proteinG.toString(),
     );
+    _noteController = TextEditingController(text: e?.note ?? '');
     _mealType = e?.mealType ?? MealType.other;
     _isEstimate = e?.entryType == FoodEntryType.estimate;
     _timestamp = e?.timestamp ?? DateTime.now();
@@ -59,6 +67,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     _nameController.dispose();
     _kcalController.dispose();
     _proteinController.dispose();
+    _noteController.dispose();
     super.dispose();
   }
 
@@ -71,6 +80,10 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     final protein = double.parse(_proteinController.text.trim());
 
     final newType = _isEstimate ? FoodEntryType.estimate : FoodEntryType.manual;
+    // Empty trimmed text means "no note" — store null, not "". Distinguishes
+    // note-clear from note-unchanged at the DB level (note column is nullable).
+    final rawNote = _noteController.text.trim();
+    final noteValue = rawNote.isEmpty ? null : rawNote;
 
     try {
       if (_isEdit) {
@@ -87,6 +100,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
             proteinG: protein,
             mealType: _mealType,
             entryType: nextType,
+            note: Value(noteValue),
           ),
         );
       } else {
@@ -98,6 +112,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
             proteinG: protein,
             mealType: _mealType,
             entryType: newType,
+            note: Value(noteValue),
           ),
         );
       }
@@ -106,9 +121,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not save entry: $e')));
+      showSaveError(context, 'save entry', e);
     }
   }
 
@@ -131,28 +144,15 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete entry?'),
-        content: Text(
+    final confirmed = await showDeleteConfirm(
+      context,
+      title: 'Delete entry?',
+      message:
           'Delete "${widget.entry!.name}" (${formatKcal(widget.entry!.kcal)} kcal)? '
           'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
     final repo = ref.read(foodEntryRepositoryProvider);
@@ -163,9 +163,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not delete entry: $e')));
+      showSaveError(context, 'delete entry', e);
     }
   }
 
@@ -185,86 +183,123 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
-          child: ListView(
+          // The input fields scroll inside the Expanded; the destructive
+          // "Delete entry" action stays pinned at the bottom, always visible
+          // and always hit-testable (widget tests rely on this — the form
+          // can be taller than the viewport once the note field is present).
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Name'),
-                textInputAction: TextInputAction.next,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Name is required' : null,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<MealType>(
-                initialValue: _mealType,
-                decoration: const InputDecoration(labelText: 'Meal'),
-                items: [
-                  for (final m in MealType.values)
-                    DropdownMenuItem(value: m, child: Text(mealTypeLabel(m))),
-                ],
-                onChanged: (m) {
-                  if (m != null) setState(() => _mealType = m);
-                },
-              ),
-              const SizedBox(height: 12),
-              TimestampField(
-                initialValue: _timestamp,
-                validator: futureGuardValidator,
-                enabled: !_saving,
-                picker: widget.timestampPicker,
-                onChanged: (t) => setState(() => _timestamp = t),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _kcalController,
-                decoration: const InputDecoration(labelText: 'Calories (kcal)'),
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                validator: (v) {
-                  final n = int.tryParse((v ?? '').trim());
-                  if (n == null) return 'Enter a whole number';
-                  if (n < 0) return 'Must be zero or more';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _proteinController,
-                decoration: const InputDecoration(labelText: 'Protein (g)'),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                textInputAction: TextInputAction.done,
-                validator: (v) {
-                  final n = double.tryParse((v ?? '').trim());
-                  if (n == null) return 'Enter a number';
-                  if (n < 0) return 'Must be zero or more';
-                  return null;
-                },
-              ),
-              if (_showEstimateToggle) ...[
-                const SizedBox(height: 4),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('This is an estimate'),
-                  subtitle: const Text(
-                    'Tag entries you eyeballed so totals stay honest.',
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(labelText: 'Name'),
+                        textInputAction: TextInputAction.next,
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Name is required'
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<MealType>(
+                        initialValue: _mealType,
+                        decoration: const InputDecoration(labelText: 'Meal'),
+                        items: [
+                          for (final m in MealType.values)
+                            DropdownMenuItem(
+                              value: m,
+                              child: Text(mealTypeLabel(m)),
+                            ),
+                        ],
+                        onChanged: (m) {
+                          if (m != null) setState(() => _mealType = m);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TimestampField(
+                        initialValue: _timestamp,
+                        validator: futureGuardValidator,
+                        enabled: !_saving,
+                        picker: widget.timestampPicker,
+                        onChanged: (t) => setState(() => _timestamp = t),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _kcalController,
+                        decoration: const InputDecoration(
+                          labelText: 'Calories (kcal)',
+                        ),
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.next,
+                        validator: (v) {
+                          final n = int.tryParse((v ?? '').trim());
+                          if (n == null) return 'Enter a whole number';
+                          if (n < 0) return 'Must be zero or more';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _proteinController,
+                        decoration: const InputDecoration(
+                          labelText: 'Protein (g)',
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textInputAction: TextInputAction.done,
+                        validator: (v) {
+                          final n = double.tryParse((v ?? '').trim());
+                          if (n == null) return 'Enter a number';
+                          if (n < 0) return 'Must be zero or more';
+                          return null;
+                        },
+                      ),
+                      if (_showEstimateToggle) ...[
+                        const SizedBox(height: 4),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('This is an estimate'),
+                          subtitle: const Text(
+                            'Tag entries you eyeballed so totals stay honest.',
+                          ),
+                          value: _isEstimate,
+                          onChanged: _saving
+                              ? null
+                              : (v) => setState(() => _isEstimate = v),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _noteController,
+                        decoration: const InputDecoration(
+                          labelText: 'Note (optional)',
+                          // Hide the default character counter — the limit is
+                          // a soft cap, not a hard UX signal worth a visible
+                          // number.
+                          counterText: '',
+                        ),
+                        enabled: !_saving,
+                        maxLength: kFoodNoteMaxLength,
+                        maxLines: 3,
+                        minLines: 1,
+                        textInputAction: TextInputAction.newline,
+                        keyboardType: TextInputType.multiline,
+                      ),
+                    ],
                   ),
-                  value: _isEstimate,
-                  onChanged: _saving
-                      ? null
-                      : (v) => setState(() => _isEstimate = v),
                 ),
-              ],
-              if (_isEdit) ...[
-                const SizedBox(height: 32),
+              ),
+              if (_isEdit)
                 TextButton.icon(
                   onPressed: _saving ? null : _delete,
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Delete entry'),
                   style: TextButton.styleFrom(foregroundColor: Colors.red),
                 ),
-              ],
             ],
           ),
         ),

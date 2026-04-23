@@ -291,6 +291,60 @@ void main() {
   );
 
   testWidgets(
+    'note: add form saves note; edit form clears note back to null',
+    (tester) async {
+      // 1) Add with a note.
+      await tester.pumpWidget(_host(db, const FoodEntryFormScreen()));
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Name'),
+        'Curry',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Calories (kcal)'),
+        '600',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Protein (g)'),
+        '30',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Note (optional)'),
+        'Extra rice tonight',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      var stored = (await repo.listAll()).single;
+      expect(stored.note, 'Extra rice tonight');
+
+      // 2) Edit the entry and clear the note — unmount first so the new form
+      //    tree mounts cleanly (matches the pattern used above).
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 1));
+
+      await tester.pumpWidget(_host(db, FoodEntryFormScreen(entry: stored)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Extra rice tonight'), findsOneWidget);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Note (optional)'),
+        '',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      stored = (await repo.listAll()).single;
+      expect(
+        stored.note,
+        isNull,
+        reason: 'clearing the note must null the column, not store ""',
+      );
+    },
+  );
+
+  testWidgets(
     'add form: timestamp >1h in the future blocks save (no new row)',
     (tester) async {
       final future = DateTime.now().add(const Duration(hours: 2));

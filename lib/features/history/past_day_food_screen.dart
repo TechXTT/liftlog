@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/database.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 import '../food/date_label.dart';
@@ -47,9 +48,7 @@ class PastDayFoodScreen extends ConsumerWidget {
                         EstimateBadge(entryType: e.entryType),
                       ],
                     ),
-                    subtitle: Text(
-                      '${mealTypeLabel(e.mealType)} · ${formatKcal(e.kcal)} kcal · ${formatGrams(e.proteinG)} g protein',
-                    ),
+                    subtitle: _EntrySubtitle(entry: e),
                     trailing: Text(_formatTime(e.timestamp)),
                   );
                 },
@@ -65,4 +64,40 @@ String _formatTime(DateTime t) {
   final h = t.hour.toString().padLeft(2, '0');
   final m = t.minute.toString().padLeft(2, '0');
   return '$h:$m';
+}
+
+/// Two-line subtitle for a food entry row: the meal/kcal/protein summary,
+/// and (when present) the user-provided note clipped to one line. Mirrors
+/// the same widget in `food_log_screen.dart` — kept as a per-screen private
+/// class to avoid leaking a UI type across feature folders for a 20-line
+/// widget.
+class _EntrySubtitle extends StatelessWidget {
+  const _EntrySubtitle({required this.entry});
+
+  final FoodEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final summary =
+        '${mealTypeLabel(entry.mealType)} · ${formatKcal(entry.kcal)} kcal · ${formatGrams(entry.proteinG)} g protein';
+    final note = entry.note;
+    if (note == null || note.isEmpty) {
+      return Text(summary);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(summary),
+        Text(
+          note,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
+    );
+  }
 }
