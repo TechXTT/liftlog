@@ -13,6 +13,7 @@ import 'package:liftlog_app/data/repositories/workout_session_repository.dart';
 import 'package:liftlog_app/features/progress/progress_data.dart';
 import 'package:liftlog_app/features/progress/progress_providers.dart';
 import 'package:liftlog_app/features/progress/progress_screen.dart';
+import 'package:liftlog_app/features/progress/summary_card.dart';
 import 'package:liftlog_app/features/progress/weekly_volume_bars.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
 import 'package:liftlog_app/shell/root_shell.dart';
@@ -318,6 +319,165 @@ void main() {
     expect(volume.completedSets.last, 3,
         reason: 'only completed sets count; planned and skipped excluded');
     expect(volume.isEmpty, isFalse);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('summary card renders all four metrics when populated',
+      (tester) async {
+    // Food in 7d window → kcal + protein averages land on real numbers,
+    // divided by 7 (calendar days), not by the logged-day count.
+    final foodRepo = FoodEntryRepository(db);
+    await foodRepo.add(FoodEntriesCompanion.insert(
+      timestamp: fakeNow.subtract(const Duration(days: 2)),
+      name: const Value('Lunch'),
+      kcal: 700,
+      proteinG: 40.0,
+      mealType: MealType.lunch,
+      entryType: FoodEntryType.manual,
+    ));
+    await foodRepo.add(FoodEntriesCompanion.insert(
+      timestamp: fakeNow,
+      name: const Value('Dinner'),
+      kcal: 1400,
+      proteinG: 80.0,
+      mealType: MealType.dinner,
+      entryType: FoodEntryType.manual,
+    ));
+    // Two kg weight logs → non-null delta.
+    final wRepo = BodyWeightLogRepository(db);
+    await wRepo.add(BodyWeightLogsCompanion.insert(
+      timestamp: fakeNow.subtract(const Duration(days: 3)),
+      value: 80.0,
+      unit: WeightUnit.kg,
+    ));
+    await wRepo.add(BodyWeightLogsCompanion.insert(
+      timestamp: fakeNow,
+      value: 80.5,
+      unit: WeightUnit.kg,
+    ));
+    // One finished session in-window → sessionsCompleted: 1.
+    final sessionRepo = WorkoutSessionRepository(db);
+    await sessionRepo.add(WorkoutSessionsCompanion.insert(
+      startedAt: fakeNow.subtract(const Duration(days: 1)),
+      endedAt: Value(fakeNow.subtract(const Duration(days: 1))),
+    ));
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    // Card itself renders (above the window selector).
+    expect(find.byType(SummaryCard), findsOneWidget);
+
+    // All four tile labels are present.
+    expect(find.text('Avg kcal / day'), findsOneWidget);
+    expect(find.text('Avg protein / day'), findsOneWidget);
+    expect(find.text('Weight change'), findsOneWidget);
+    expect(find.text('Sessions completed'), findsOneWidget);
+
+    // Exact values: (700+1400)/7 = 300 kcal, (40+80)/7 ≈ 17.1 g.
+    expect(find.text('300'), findsOneWidget);
+    expect(find.text('17.1 g'), findsOneWidget);
+    // Weight delta: +0.5 kg (positive → '+' prefix).
+    expect(find.text('+0.5 kg'), findsOneWidget);
+    // Sessions completed: 1.
+    expect(find.text('1'), findsOneWidget);
+
+    // No em-dash tiles when everything is populated.
+    expect(find.text('\u2014'), findsNothing);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('summary card shows em-dash for every null-able metric when empty',
+      (tester) async {
+    // Empty DB → every metric except sessionsCompleted resolves to null.
+    // sessionsCompleted = 0 renders as '0', not as '—'.
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SummaryCard), findsOneWidget);
+    // Three em-dashes: kcal, protein, weight delta.
+    expect(find.text('\u2014'), findsNWidgets(3));
+    // Sessions completed shows 0, not em-dash.
+    expect(find.text('0'), findsOneWidget);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('summary card weight-delta is em-dash when units are mixed',
+      (tester) async {
+    // Mixed-unit history → delta must be null (no silent conversion).
+    final wRepo = BodyWeightLogRepository(db);
+    await wRepo.add(BodyWeightLogsCompanion.insert(
+      timestamp: fakeNow.subtract(const Duration(days: 3)),
+      value: 176.0,
+      unit: WeightUnit.lb,
+    ));
+    await wRepo.add(BodyWeightLogsCompanion.insert(
+      timestamp: fakeNow,
+      value: 80.0,
+      unit: WeightUnit.kg,
+    ));
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    // Read summary directly to confirm weightDelta is null.
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ProgressScreen)),
+    );
+    final summary = await container.read(progressSummaryProvider.future);
+    expect(summary.weightDelta, isNull);
+    expect(summary.weightDeltaUnit, isNull);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('window toggle updates summary values', (tester) async {
+    // Old entry (10 days back) lands in 30d/all but not in 7d.
+    // Today entry lands in all three windows.
+    final foodRepo = FoodEntryRepository(db);
+    await foodRepo.add(FoodEntriesCompanion.insert(
+      timestamp: fakeNow.subtract(const Duration(days: 10)),
+      name: const Value('Old meal'),
+      kcal: 2100,
+      proteinG: 70.0,
+      mealType: MealType.lunch,
+      entryType: FoodEntryType.manual,
+    ));
+    await foodRepo.add(FoodEntriesCompanion.insert(
+      timestamp: fakeNow,
+      name: const Value('Today meal'),
+      kcal: 2100,
+      proteinG: 70.0,
+      mealType: MealType.lunch,
+      entryType: FoodEntryType.manual,
+    ));
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ProgressScreen)),
+    );
+
+    // 7d: 2100 / 7 = 300.
+    var summary = await container.read(progressSummaryProvider.future);
+    expect(summary.avgKcalPerDay, 300);
+
+    // Flip to 30d: (2100 + 2100) / 30 = 140.
+    await tester.tap(find.text('30d'));
+    await tester.pumpAndSettle();
+    summary = await container.read(progressSummaryProvider.future);
+    expect(summary.avgKcalPerDay, 140);
+
+    // Flip to All: oldest is 10 days back, today inclusive → 11 calendar
+    // days. (2100 + 2100) / 11 ≈ 382.
+    await tester.tap(find.text('All'));
+    await tester.pumpAndSettle();
+    summary = await container.read(progressSummaryProvider.future);
+    expect(summary.avgKcalPerDay, (4200 / 11).round());
 
     await _drainDriftTimers(tester);
   });
