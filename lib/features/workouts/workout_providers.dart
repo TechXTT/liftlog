@@ -18,3 +18,15 @@ final setsForSessionProvider =
   final repo = ref.watch(exerciseSetRepositoryProvider);
   return repo.watchForSession(id);
 });
+
+/// Feeds the Exercise Set form's recent-exercises chip strip (issue #39).
+///
+/// `FutureProvider` (not `StreamProvider`) is deliberate: the form is a
+/// transient surface opened once per set edit. We don't want a live stream
+/// re-rendering chip labels while the user is typing a new exercise name —
+/// that would jitter the row beneath the text field as the just-typed name
+/// gets persisted and promoted.
+final recentExerciseNamesProvider = FutureProvider<List<String>>((ref) {
+  final repo = ref.watch(exerciseSetRepositoryProvider);
+  return repo.listRecentDistinctExerciseNames();
+});

@@ -7,6 +7,7 @@ import '../../providers/app_providers.dart';
 import '../../ui/delete_confirm.dart';
 import '../../ui/labels.dart';
 import '../../ui/show_save_error.dart';
+import 'recent_exercises_strip.dart';
 
 class ExerciseSetFormScreen extends ConsumerStatefulWidget {
   const ExerciseSetFormScreen({
@@ -55,6 +56,17 @@ class _ExerciseSetFormScreenState extends ConsumerState<ExerciseSetFormScreen> {
     _repsController.dispose();
     _weightController.dispose();
     super.dispose();
+  }
+
+  /// Refill the `Exercise` text field from a recent-exercises chip tap.
+  /// Caret lands at the end of the name so the user can continue typing
+  /// (e.g. append " (variant)") without hitting End first. No
+  /// auto-advance, no auto-submit — the user still chooses to save.
+  void _applyRecentName(String name) {
+    _nameController.value = TextEditingValue(
+      text: name,
+      selection: TextSelection.fromPosition(TextPosition(offset: name.length)),
+    );
   }
 
   Future<void> _save() async {
@@ -142,6 +154,11 @@ class _ExerciseSetFormScreenState extends ConsumerState<ExerciseSetFormScreen> {
                     ? 'Exercise name is required'
                     : null,
               ),
+              // Recent-exercises chip strip (issue #39). Sits directly
+              // under the Exercise field — clearly "for" that field. Tap
+              // fills the text box and parks the caret at the end; the
+              // user still chooses to save.
+              RecentExercisesStrip(onSelected: _applyRecentName),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _repsController,

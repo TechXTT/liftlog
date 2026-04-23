@@ -142,6 +142,96 @@ void main() {
     );
   });
 
+  group('listRecentDistinctExerciseNames', () {
+    test('empty DB returns an empty list', () async {
+      expect(await sets.listRecentDistinctExerciseNames(), isEmpty);
+    });
+
+    test('dedups keeping the newest occurrence per name '
+        '(Bench → Squat → Bench → Row yields [Row, Bench, Squat])', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 23),
+      ));
+
+      // Inserted in order — `id` autoincrements, so id-desc gives us
+      // the recency order we want.
+      for (final (i, name) in [
+        'Bench',
+        'Squat',
+        'Bench',
+        'Row',
+      ].indexed) {
+        await sets.add(ExerciseSetsCompanion.insert(
+          sessionId: id,
+          exerciseName: name,
+          reps: 5,
+          weight: 80,
+          weightUnit: WeightUnit.kg,
+          status: WorkoutSetStatus.completed,
+          orderIndex: i,
+        ));
+      }
+
+      expect(
+        await sets.listRecentDistinctExerciseNames(),
+        ['Row', 'Bench', 'Squat'],
+      );
+    });
+
+    test('limit caps the returned list', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 23),
+      ));
+
+      for (var i = 0; i < 15; i++) {
+        await sets.add(ExerciseSetsCompanion.insert(
+          sessionId: id,
+          exerciseName: 'Exercise $i',
+          reps: 5,
+          weight: 80,
+          weightUnit: WeightUnit.kg,
+          status: WorkoutSetStatus.completed,
+          orderIndex: i,
+        ));
+      }
+
+      final names = await sets.listRecentDistinctExerciseNames(limit: 5);
+      expect(names, hasLength(5));
+      // Newest-first — last inserted wins.
+      expect(names.first, 'Exercise 14');
+      expect(names.last, 'Exercise 10');
+    });
+
+    test('treats whitespace-only-different names as distinct '
+        '(known behavior — no silent canonicalization)', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 23),
+      ));
+
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: id,
+        exerciseName: 'Bench Press',
+        reps: 5,
+        weight: 80,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 0,
+      ));
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: id,
+        exerciseName: 'Bench Press ', // trailing space
+        reps: 5,
+        weight: 80,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 1,
+      ));
+
+      final names = await sets.listRecentDistinctExerciseNames();
+      expect(names, ['Bench Press ', 'Bench Press']);
+    });
+  });
+
   group('listRangeWithSets', () {
     test('returns only sessions in [from, to) with their sets, '
         'ordered by orderIndex', () async {

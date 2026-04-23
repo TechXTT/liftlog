@@ -44,4 +44,36 @@ class ExerciseSetRepository {
       (_db.select(_db.exerciseSets)
             ..orderBy([(t) => OrderingTerm.asc(t.id)]))
           .get();
+
+  /// Returns up to [limit] distinct exercise names across all sessions,
+  /// ordered by most recent use (newest first).
+  ///
+  /// Used by the Exercise Set form's recent-exercises chip strip (issue
+  /// #39): tap a chip to refill the `Exercise` text field with one tap
+  /// instead of retyping "Bench Press" every set.
+  ///
+  /// Implementation: pull every set, re-sort by `id` descending (`id` is an
+  /// autoincrement surrogate for insert recency — cheaper than a new
+  /// `orderBy` query and matches `listAll`'s existing asc ordering by just
+  /// reversing in Dart), then dedup by `exerciseName` keeping first
+  /// occurrence. A SQL window-function variant would be faster at large
+  /// row counts but isn't warranted at single-user scale.
+  ///
+  /// Known behavior: names differing only in whitespace (e.g. "Bench
+  /// Press" vs "Bench Press ") are kept as distinct chips. We deliberately
+  /// do NOT trim/canonicalize — that would silently mutate what the user
+  /// sees, a trust-rule violation. See issue #39 risk note.
+  Future<List<String>> listRecentDistinctExerciseNames({int limit = 10}) async {
+    final all = await listAll();
+    all.sort((a, b) => b.id.compareTo(a.id));
+    final seen = <String>{};
+    final out = <String>[];
+    for (final s in all) {
+      if (seen.add(s.exerciseName)) {
+        out.add(s.exerciseName);
+        if (out.length == limit) break;
+      }
+    }
+    return out;
+  }
 }
