@@ -10,9 +10,15 @@ class WorkoutSessionRepository {
   Future<int> add(WorkoutSessionsCompanion session) =>
       _db.into(_db.workoutSessions).insert(session);
 
-  Future<void> update(WorkoutSession session) =>
-      (_db.update(_db.workoutSessions)..whereSamePrimaryKey(session))
-          .write(session);
+  /// Writes every column of [session] including nullable columns that are
+  /// being cleared (e.g. `endedAt: null`, `note: null`). We use `replace`
+  /// rather than `update(...).write(...)` because `write` serializes with
+  /// `nullToAbsent: true` and would silently preserve cleared nullables —
+  /// a trust-rule violation. `replace` applies its own `whereSamePrimaryKey`
+  /// so the caller must not add one.
+  Future<void> update(WorkoutSession session) async {
+    await _db.update(_db.workoutSessions).replace(session);
+  }
 
   Future<int> delete(int id) =>
       (_db.delete(_db.workoutSessions)..where((t) => t.id.equals(id))).go();
