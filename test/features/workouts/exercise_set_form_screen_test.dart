@@ -90,7 +90,10 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Squat'), findsOneWidget);
+    // The Exercise field must be pre-filled with the existing set's name.
+    // Scope to the TextFormField so we don't also match the recent-
+    // exercises chip (issue #39) that now renders the same name.
+    expect(find.widgetWithText(TextFormField, 'Squat'), findsOneWidget);
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Reps'), '6');
     await tester.tap(find.text('Save'));
