@@ -9,6 +9,17 @@ class DailyTotals {
   final double proteinG;
 }
 
+class DailySummary {
+  const DailySummary({
+    required this.day,
+    required this.kcal,
+    required this.proteinG,
+  });
+  final DateTime day;
+  final int kcal;
+  final double proteinG;
+}
+
 class FoodEntryRepository {
   FoodEntryRepository(this._db);
 
@@ -50,6 +61,30 @@ class FoodEntryRepository {
         protein += e.proteinG;
       }
       return DailyTotals(kcal: kcal, proteinG: protein);
+    });
+  }
+
+  Stream<List<DailySummary>> watchDailySummaries() {
+    return (_db.select(_db.foodEntries)
+          ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+        .watch()
+        .map((entries) {
+      final buckets = <DateTime, List<FoodEntry>>{};
+      for (final e in entries) {
+        final day = DateTime(e.timestamp.year, e.timestamp.month, e.timestamp.day);
+        buckets.putIfAbsent(day, () => []).add(e);
+      }
+      final summaries = buckets.entries.map((b) {
+        var kcal = 0;
+        var protein = 0.0;
+        for (final e in b.value) {
+          kcal += e.kcal;
+          protein += e.proteinG;
+        }
+        return DailySummary(day: b.key, kcal: kcal, proteinG: protein);
+      }).toList()
+        ..sort((a, b) => b.day.compareTo(a.day));
+      return summaries;
     });
   }
 }
