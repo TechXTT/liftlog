@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/database.dart';
 import '../../data/repositories/food_entry_repository.dart';
+import 'date_label.dart';
 import 'food_entry_form_screen.dart';
 import 'food_providers.dart';
 import 'meal_type_label.dart';
@@ -69,30 +70,46 @@ class _TotalsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.titleMedium;
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-      child: totals.when(
-        data: (t) => Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            Column(children: [
-              Text('${t.kcal}', style: Theme.of(context).textTheme.headlineMedium),
-              Text('kcal today', style: style),
-            ]),
-            Column(children: [
-              Text(
-                _formatProtein(t.proteinG),
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              Text('g protein', style: style),
-            ]),
-          ],
-        ),
-        loading: () => const SizedBox(height: 48),
-        error: (err, _) => Text('Totals unavailable: $err'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Today, ${shortDate(DateTime.now())}',
+            style: theme.textTheme.labelLarge,
+          ),
+          const SizedBox(height: 8),
+          totals.when(
+            data: (t) => Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _Metric(value: '${t.kcal}', label: 'kcal'),
+                _Metric(value: _formatProtein(t.proteinG), label: 'g protein'),
+              ],
+            ),
+            loading: () => const SizedBox(height: 48),
+            error: (err, _) => Text('Totals unavailable: $err'),
+          ),
+        ],
       ),
     );
+  }
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.value, required this.label});
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(children: [
+      Text(value, style: theme.textTheme.headlineMedium),
+      Text(label, style: theme.textTheme.titleMedium),
+    ]);
   }
 }
 
