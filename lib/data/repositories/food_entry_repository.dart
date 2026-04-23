@@ -28,6 +28,11 @@ class FoodEntryRepository {
             ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
           .watch();
 
+  Future<List<FoodEntry>> listAll() =>
+      (_db.select(_db.foodEntries)
+            ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+          .get();
+
   Stream<List<FoodEntry>> watchByDate(DateTime day) {
     final range = DayRange(day);
     return (_db.select(_db.foodEntries)
