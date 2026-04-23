@@ -123,6 +123,11 @@ Keep `pubspec.yaml` dependencies minimal. Every new dependency must be justified
 - `vault/` **must** stay in `.gitignore`. Vault is long-term memory on disk, never committed.
 - Standard Flutter `.gitignore` + `vault/`, `.env*`, `.claude/settings.local.json`, macOS/IDE detritus.
 
+## Design reference (committed)
+- `docs/design/README.md` — visual + copy contract: color tokens, type scale, iconography, empty-state / delete-confirm / validation copy recipes, forbidden vocabulary. Read this before any UI-touching change. When it disagrees with this file, this file wins.
+- `docs/design/tokens.css` — M3 CSS variable set (reference only; app reads from `ThemeData` at runtime).
+- `docs/design/assets/` — draft brand marks (not yet the app icon — founder decision pending).
+
 ## Process references (vault = memory, not committed)
 - Strategy: `vault/01 Strategy/Strategy Memo.md`
 - Roadmap: `vault/02 Roadmap/Roadmap.md`

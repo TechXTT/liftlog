@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" fill="none">
+  
+  <g>
+    
+    <rect x="4" y="16" width="10" height="32" rx="2" fill="#65558F"></rect>
+    <rect x="16" y="22" width="6" height="20" rx="1" fill="#65558F"></rect>
+    
+    <rect x="22" y="30" width="26" height="4" rx="1" fill="#65558F"></rect>
+    
+    <rect x="42" y="22" width="6" height="20" rx="1" fill="#65558F"></rect>
+    <rect x="50" y="16" width="10" height="32" rx="2" fill="#65558F"></rect>
+  </g>
+  
+  <text x="74" y="44" font-family="-apple-system, &#39;SF Pro Display&#39;, &#39;Inter&#39;, system-ui, sans-serif" font-size="30" font-weight="600" fill="#1D1B20" letter-spacing="-0.5">LiftLog</text>
+</svg>

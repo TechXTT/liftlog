@@ -1,0 +1,213 @@
+/* =========================================================================
+   LiftLog — Colors & Type
+   =========================================================================
+   LiftLog is a Flutter Material 3 app. The theme is built with:
+     ColorScheme.fromSeed(seedColor: Colors.deepPurple)
+     useMaterial3: true
+   All colors below are Material 3 tones derived from that deepPurple seed
+   (Flutter Colors.deepPurple == #673AB7). Tokens follow the M3 role naming
+   Flutter exposes on `ColorScheme`, so designs translate 1:1 to code.
+
+   Typography follows Material 3's "2021" type scale, which is what
+   `Theme.of(context).textTheme` returns by default. The default Material 3
+   type face on iOS falls back to SF Pro Text / Display; on the web preview
+   we stack SF → Inter → system-ui to get close.
+   ========================================================================= */
+
+:root {
+  /* --------------------------------------------------------------------- */
+  /* Color — Primary (seed = deepPurple #673AB7)                           */
+  /* --------------------------------------------------------------------- */
+  --ll-primary:              #65558F; /* ColorScheme.primary           */
+  --ll-on-primary:           #FFFFFF;
+  --ll-primary-container:    #EADDFF;
+  --ll-on-primary-container: #21005D;
+
+  /* Secondary & tertiary fall out of the M3 tonal palette */
+  --ll-secondary:              #625B71;
+  --ll-on-secondary:           #FFFFFF;
+  --ll-secondary-container:    #E8DEF8;
+  --ll-on-secondary-container: #1D192B;
+
+  --ll-tertiary:              #7D5260;
+  --ll-on-tertiary:           #FFFFFF;
+  --ll-tertiary-container:    #FFD8E4;
+  --ll-on-tertiary-container: #31111D;
+
+  /* Semantic — error (used for destructive "Delete entry" text) */
+  --ll-error:              #B3261E;
+  --ll-on-error:           #FFFFFF;
+  --ll-error-container:    #F9DEDC;
+  --ll-on-error-container: #410E0B;
+
+  /* Destructive red in code is Flutter `Colors.red` (#F44336) — used on
+     TextButton.styleFrom(foregroundColor: Colors.red). Kept as its own
+     token because it is not the M3 error role. */
+  --ll-destructive: #F44336;
+
+  /* --------------------------------------------------------------------- */
+  /* Color — Surface / neutral (M3 surface tones)                          */
+  /* --------------------------------------------------------------------- */
+  --ll-surface:                     #FEF7FF; /* app background */
+  --ll-on-surface:                  #1D1B20; /* primary text    */
+  --ll-on-surface-variant:          #49454F; /* secondary text  */
+  --ll-surface-container-lowest:    #FFFFFF;
+  --ll-surface-container-low:       #F7F2FA;
+  --ll-surface-container:           #F3EDF7;
+  --ll-surface-container-high:      #ECE6F0;
+  --ll-surface-container-highest:   #E6E0E9; /* _MixedUnitsBanner bg */
+
+  --ll-outline:         #79747E;
+  --ll-outline-variant: #CAC4D0; /* Divider(height: 1) color */
+
+  --ll-scrim:           #000000;
+  --ll-shadow:          #000000;
+
+  /* --------------------------------------------------------------------- */
+  /* Semantic / functional                                                 */
+  /* --------------------------------------------------------------------- */
+  --ll-bg:          var(--ll-surface);
+  --ll-fg:          var(--ll-on-surface);
+  --ll-fg-muted:    var(--ll-on-surface-variant);
+  --ll-fg-subtle:   rgba(29, 27, 32, 0.6);      /* "Est." and weak hints  */
+  --ll-divider:     var(--ll-outline-variant);
+  --ll-card:        var(--ll-surface-container-low);
+  --ll-banner:      var(--ll-surface-container-highest);
+  --ll-brand:       var(--ll-primary);
+
+  /* Estimate badge — uses secondaryContainer / onSecondaryContainer */
+  --ll-badge-bg: var(--ll-secondary-container);
+  --ll-badge-fg: var(--ll-on-secondary-container);
+
+  /* Chart ink — always colorScheme.primary in LiftLog paint code */
+  --ll-chart-ink: var(--ll-primary);
+
+  /* --------------------------------------------------------------------- */
+  /* Type — family                                                         */
+  /* --------------------------------------------------------------------- */
+  /* Flutter on iOS uses the platform default (SF Pro Text / Display).
+     We stack SF → Inter → system-ui so the web preview renders close. */
+  --ll-font-sans:
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+      "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --ll-font-mono:
+      ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* --------------------------------------------------------------------- */
+  /* Type — Material 3 "2021" scale                                        */
+  /* Weight / size / line-height / tracking values come from the M3 spec   */
+  /* Flutter ships as the default Material 3 TextTheme.                    */
+  /* --------------------------------------------------------------------- */
+  --ll-display-large-size:   57px; --ll-display-large-lh:   64px; --ll-display-large-weight:   400; --ll-display-large-tracking:  -0.25px;
+  --ll-display-medium-size:  45px; --ll-display-medium-lh:  52px; --ll-display-medium-weight:  400; --ll-display-medium-tracking:  0px;
+  --ll-display-small-size:   36px; --ll-display-small-lh:   44px; --ll-display-small-weight:   400; --ll-display-small-tracking:   0px;
+
+  --ll-headline-large-size:  32px; --ll-headline-large-lh:  40px; --ll-headline-large-weight:  400; --ll-headline-large-tracking:  0px;
+  --ll-headline-medium-size: 28px; --ll-headline-medium-lh: 36px; --ll-headline-medium-weight: 400; --ll-headline-medium-tracking: 0px;
+  --ll-headline-small-size:  24px; --ll-headline-small-lh:  32px; --ll-headline-small-weight:  400; --ll-headline-small-tracking:  0px;
+
+  --ll-title-large-size:     22px; --ll-title-large-lh:     28px; --ll-title-large-weight:     400; --ll-title-large-tracking:     0px;
+  --ll-title-medium-size:    16px; --ll-title-medium-lh:    24px; --ll-title-medium-weight:    500; --ll-title-medium-tracking:    0.15px;
+  --ll-title-small-size:     14px; --ll-title-small-lh:     20px; --ll-title-small-weight:     500; --ll-title-small-tracking:     0.1px;
+
+  --ll-body-large-size:      16px; --ll-body-large-lh:      24px; --ll-body-large-weight:      400; --ll-body-large-tracking:      0.5px;
+  --ll-body-medium-size:     14px; --ll-body-medium-lh:     20px; --ll-body-medium-weight:     400; --ll-body-medium-tracking:     0.25px;
+  --ll-body-small-size:      12px; --ll-body-small-lh:      16px; --ll-body-small-weight:      400; --ll-body-small-tracking:      0.4px;
+
+  --ll-label-large-size:     14px; --ll-label-large-lh:     20px; --ll-label-large-weight:     500; --ll-label-large-tracking:     0.1px;
+  --ll-label-medium-size:    12px; --ll-label-medium-lh:     16px; --ll-label-medium-weight:    500; --ll-label-medium-tracking:    0.5px;
+  --ll-label-small-size:     11px; --ll-label-small-lh:      16px; --ll-label-small-weight:     500; --ll-label-small-tracking:     0.5px;
+
+  /* --------------------------------------------------------------------- */
+  /* Spacing — multiples of 4 (Material default)                           */
+  /* --------------------------------------------------------------------- */
+  --ll-space-1:  4px;
+  --ll-space-2:  8px;
+  --ll-space-3:  12px;
+  --ll-space-4:  16px;  /* default screen padding everywhere in the app */
+  --ll-space-6:  24px;  /* _EmptyState padding, section headers */
+  --ll-space-8:  32px;
+
+  /* --------------------------------------------------------------------- */
+  /* Radii                                                                 */
+  /* --------------------------------------------------------------------- */
+  --ll-radius-xs:   4px;  /* EstimateBadge pill               */
+  --ll-radius-sm:   8px;  /* MixedUnits banner                */
+  --ll-radius-md:  12px;  /* Material 3 default card radius   */
+  --ll-radius-lg:  16px;  /* Extended FAB / segmented button  */
+  --ll-radius-xl:  28px;  /* M3 FloatingActionButton          */
+  --ll-radius-pill: 9999px;
+
+  /* --------------------------------------------------------------------- */
+  /* Elevation (Material 3 — uses surface tint, not drop-shadow only)      */
+  /* --------------------------------------------------------------------- */
+  --ll-elev-0: none;
+  --ll-elev-1:
+      0px 1px 2px 0px rgba(0, 0, 0, 0.30),
+      0px 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --ll-elev-2:
+      0px 1px 2px 0px rgba(0, 0, 0, 0.30),
+      0px 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --ll-elev-3:
+      0px 4px 8px 3px rgba(0, 0, 0, 0.15),
+      0px 1px 3px 0px rgba(0, 0, 0, 0.30);
+  --ll-elev-4:
+      0px 6px 10px 4px rgba(0, 0, 0, 0.15),
+      0px 2px 3px 0px rgba(0, 0, 0, 0.30);
+  --ll-elev-5:
+      0px 8px 12px 6px rgba(0, 0, 0, 0.15),
+      0px 4px 4px 0px rgba(0, 0, 0, 0.30);
+
+  /* --------------------------------------------------------------------- */
+  /* Motion (Material 3 defaults)                                          */
+  /* --------------------------------------------------------------------- */
+  --ll-dur-short:  150ms;
+  --ll-dur-medium: 250ms;
+  --ll-dur-long:   400ms;
+  --ll-ease-standard: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --ll-ease-emphasized: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+}
+
+/* =========================================================================
+   Base element styles (match Flutter's default Material 3 TextTheme)
+   ========================================================================= */
+html, body {
+  font-family: var(--ll-font-sans);
+  color: var(--ll-fg);
+  background: var(--ll-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* M3 maps headline* styles to h1-h3, title* to h4-h6 (loose convention) */
+h1 { font: var(--ll-headline-large-weight) var(--ll-headline-large-size)/var(--ll-headline-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-headline-large-tracking); margin: 0; }
+h2 { font: var(--ll-headline-medium-weight) var(--ll-headline-medium-size)/var(--ll-headline-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-headline-medium-tracking); margin: 0; }
+h3 { font: var(--ll-headline-small-weight) var(--ll-headline-small-size)/var(--ll-headline-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-headline-small-tracking); margin: 0; }
+h4 { font: var(--ll-title-large-weight) var(--ll-title-large-size)/var(--ll-title-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-title-large-tracking); margin: 0; }
+h5 { font: var(--ll-title-medium-weight) var(--ll-title-medium-size)/var(--ll-title-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-title-medium-tracking); margin: 0; }
+h6 { font: var(--ll-title-small-weight) var(--ll-title-small-size)/var(--ll-title-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-title-small-tracking); margin: 0; }
+
+p  { font: var(--ll-body-medium-weight) var(--ll-body-medium-size)/var(--ll-body-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-body-medium-tracking); margin: 0 0 0.5em; }
+
+small, .ll-caption { font: var(--ll-body-small-weight) var(--ll-body-small-size)/var(--ll-body-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-body-small-tracking); color: var(--ll-fg-muted); }
+
+code, pre { font-family: var(--ll-font-mono); }
+
+/* Utility classes matching Flutter TextTheme roles, so our HTML mocks can
+   reach for `class="ll-display-medium"` exactly the way Flutter reaches for
+   `Theme.of(context).textTheme.displayMedium`. */
+.ll-display-large   { font: var(--ll-display-large-weight) var(--ll-display-large-size)/var(--ll-display-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-display-large-tracking); }
+.ll-display-medium  { font: var(--ll-display-medium-weight) var(--ll-display-medium-size)/var(--ll-display-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-display-medium-tracking); }
+.ll-display-small   { font: var(--ll-display-small-weight) var(--ll-display-small-size)/var(--ll-display-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-display-small-tracking); }
+.ll-headline-large  { font: var(--ll-headline-large-weight) var(--ll-headline-large-size)/var(--ll-headline-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-headline-large-tracking); }
+.ll-headline-medium { font: var(--ll-headline-medium-weight) var(--ll-headline-medium-size)/var(--ll-headline-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-headline-medium-tracking); }
+.ll-headline-small  { font: var(--ll-headline-small-weight) var(--ll-headline-small-size)/var(--ll-headline-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-headline-small-tracking); }
+.ll-title-large     { font: var(--ll-title-large-weight) var(--ll-title-large-size)/var(--ll-title-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-title-large-tracking); }
+.ll-title-medium    { font: var(--ll-title-medium-weight) var(--ll-title-medium-size)/var(--ll-title-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-title-medium-tracking); }
+.ll-title-small     { font: var(--ll-title-small-weight) var(--ll-title-small-size)/var(--ll-title-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-title-small-tracking); }
+.ll-body-large      { font: var(--ll-body-large-weight) var(--ll-body-large-size)/var(--ll-body-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-body-large-tracking); }
+.ll-body-medium     { font: var(--ll-body-medium-weight) var(--ll-body-medium-size)/var(--ll-body-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-body-medium-tracking); }
+.ll-body-small      { font: var(--ll-body-small-weight) var(--ll-body-small-size)/var(--ll-body-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-body-small-tracking); }
+.ll-label-large     { font: var(--ll-label-large-weight) var(--ll-label-large-size)/var(--ll-label-large-lh) var(--ll-font-sans); letter-spacing: var(--ll-label-large-tracking); }
+.ll-label-medium    { font: var(--ll-label-medium-weight) var(--ll-label-medium-size)/var(--ll-label-medium-lh) var(--ll-font-sans); letter-spacing: var(--ll-label-medium-tracking); }
+.ll-label-small     { font: var(--ll-label-small-weight) var(--ll-label-small-size)/var(--ll-label-small-lh) var(--ll-font-sans); letter-spacing: var(--ll-label-small-tracking); }
