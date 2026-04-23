@@ -59,6 +59,24 @@ class FoodEntryRepository {
         .watch();
   }
 
+  Future<List<FoodEntry>> listByDate(DateTime day) {
+    final range = DayRange(day);
+    return (_db.select(_db.foodEntries)
+          ..where((t) => t.timestamp.isBetweenValues(range.start, range.end))
+          ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+        .get();
+  }
+
+  /// Returns entries whose `timestamp` falls in `[from, to)` (from inclusive,
+  /// to exclusive), ordered by timestamp descending.
+  Future<List<FoodEntry>> listRange(DateTime from, DateTime to) =>
+      (_db.select(_db.foodEntries)
+            ..where((t) =>
+                t.timestamp.isBiggerOrEqualValue(from) &
+                t.timestamp.isSmallerThanValue(to))
+            ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+          .get();
+
   Stream<DailyTotals> watchDailyTotals(DateTime day) {
     return watchByDate(day).map((entries) {
       var kcal = 0;
@@ -71,27 +89,47 @@ class FoodEntryRepository {
     });
   }
 
+  Future<DailyTotals> listDailyTotals(DateTime day) async {
+    final entries = await listByDate(day);
+    var kcal = 0;
+    var protein = 0.0;
+    for (final e in entries) {
+      kcal += e.kcal;
+      protein += e.proteinG;
+    }
+    return DailyTotals(kcal: kcal, proteinG: protein);
+  }
+
   Stream<List<DailySummary>> watchDailySummaries() {
     return (_db.select(_db.foodEntries)
           ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
         .watch()
-        .map((entries) {
-      final buckets = <DateTime, List<FoodEntry>>{};
-      for (final e in entries) {
-        final day = DateTime(e.timestamp.year, e.timestamp.month, e.timestamp.day);
-        buckets.putIfAbsent(day, () => []).add(e);
+        .map(_summarize);
+  }
+
+  Future<List<DailySummary>> listDailySummaries() async {
+    final entries = await (_db.select(_db.foodEntries)
+          ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+        .get();
+    return _summarize(entries);
+  }
+
+  List<DailySummary> _summarize(List<FoodEntry> entries) {
+    final buckets = <DateTime, List<FoodEntry>>{};
+    for (final e in entries) {
+      final day = DateTime(e.timestamp.year, e.timestamp.month, e.timestamp.day);
+      buckets.putIfAbsent(day, () => []).add(e);
+    }
+    final summaries = buckets.entries.map((b) {
+      var kcal = 0;
+      var protein = 0.0;
+      for (final e in b.value) {
+        kcal += e.kcal;
+        protein += e.proteinG;
       }
-      final summaries = buckets.entries.map((b) {
-        var kcal = 0;
-        var protein = 0.0;
-        for (final e in b.value) {
-          kcal += e.kcal;
-          protein += e.proteinG;
-        }
-        return DailySummary(day: b.key, kcal: kcal, proteinG: protein);
-      }).toList()
-        ..sort((a, b) => b.day.compareTo(a.day));
-      return summaries;
-    });
+      return DailySummary(day: b.key, kcal: kcal, proteinG: protein);
+    }).toList()
+      ..sort((a, b) => b.day.compareTo(a.day));
+    return summaries;
   }
 }
