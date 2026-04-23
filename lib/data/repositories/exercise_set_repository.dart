@@ -35,4 +35,13 @@ class ExerciseSetRepository {
             ..where((t) => t.sessionId.equals(sessionId))
             ..orderBy([(t) => OrderingTerm.asc(t.orderIndex)]))
           .get();
+
+  /// Returns every exercise set across all sessions, ordered by `id`
+  /// ascending for deterministic output. Added for the data-export flow
+  /// (issue #37) which needs a flat dump of all rows; the other
+  /// `watch*`/`list*` pairs on this repository are session-scoped.
+  Future<List<ExerciseSet>> listAll() =>
+      (_db.select(_db.exerciseSets)
+            ..orderBy([(t) => OrderingTerm.asc(t.id)]))
+          .get();
 }

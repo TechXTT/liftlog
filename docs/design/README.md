@@ -112,3 +112,7 @@ When implementing a UI change, check this file. When a rule in here and `CLAUDE.
 - Component library (Flutter's Material 3 is the library).
 - Settings / onboarding / auth screens (the app has none).
 - Android / Apple Watch chrome.
+
+## See also
+
+- [`../export-format.md`](../export-format.md) — authoritative JSON shape for the Export all data flow on the History tab.

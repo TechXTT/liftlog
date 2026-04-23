@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ui/formatters.dart';
+import '../../ui/show_save_error.dart';
+import '../export/export_controller.dart';
 import '../food/date_label.dart';
 import '../workouts/workout_session_screen.dart';
 import 'history_providers.dart';
@@ -70,7 +72,50 @@ class HistoryScreen extends ConsumerWidget {
             error: (err, _) => _ErrorInline(text: 'Workout history: $err'),
           ),
           const SizedBox(height: 24),
+          const _ExportSection(),
         ],
+      ),
+    );
+  }
+}
+
+/// Export-all-data entry point. Lives at the bottom of the History
+/// `ListView` so it scrolls with the rest of the page rather than
+/// sitting pinned to the viewport. Disabled during the export run
+/// (driven by `ExportController`'s `AsyncValue.isLoading`); shows a
+/// success SnackBar on completion or the standard save-error SnackBar
+/// on failure.
+class _ExportSection extends ConsumerWidget {
+  const _ExportSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(exportControllerProvider);
+    final busy = state.isLoading;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: FilledButton.tonalIcon(
+          onPressed: busy
+              ? null
+              : () async {
+                  try {
+                    await ref
+                        .read(exportControllerProvider.notifier)
+                        .exportNow();
+                    if (context.mounted) {
+                      showSaveSuccess(context, 'Export shared');
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      showSaveError(context, 'export data', e);
+                    }
+                  }
+                },
+          icon: const Icon(Icons.ios_share),
+          label: const Text('Export all data (JSON)'),
+        ),
       ),
     );
   }
