@@ -12,6 +12,7 @@ part 'database.g.dart';
 class FoodEntries extends Table {
   IntColumn get id => integer().autoIncrement()();
   DateTimeColumn get timestamp => dateTime()();
+  TextColumn get name => text().withDefault(const Constant(''))();
   IntColumn get kcal => integer()();
   RealColumn get proteinG => real()();
   TextColumn get mealType => textEnum<MealType>()();
@@ -52,15 +53,17 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
         onUpgrade: (m, from, to) async {
-          // v1 has no prior schemas; intentionally empty.
-          // When schemaVersion advances: add a manual backup step
-          // (see vault/05 Architecture/Runbooks.md) before running migrations.
+          // When advancing schemaVersion: document the manual backup path
+          // in vault/05 Architecture/Runbooks.md before releasing the migration.
+          if (from < 2) {
+            await m.addColumn(foodEntries, foodEntries.name);
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');

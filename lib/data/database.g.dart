@@ -33,6 +33,16 @@ class $FoodEntriesTable extends FoodEntries
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _kcalMeta = const VerificationMeta('kcal');
   @override
   late final GeneratedColumn<int> kcal = GeneratedColumn<int>(
@@ -84,6 +94,7 @@ class $FoodEntriesTable extends FoodEntries
   List<GeneratedColumn> get $columns => [
     id,
     timestamp,
+    name,
     kcal,
     proteinG,
     mealType,
@@ -112,6 +123,12 @@ class $FoodEntriesTable extends FoodEntries
       );
     } else if (isInserting) {
       context.missing(_timestampMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
     }
     if (data.containsKey('kcal')) {
       context.handle(
@@ -151,6 +168,10 @@ class $FoodEntriesTable extends FoodEntries
       timestamp: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}timestamp'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
       )!,
       kcal: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -193,6 +214,7 @@ class $FoodEntriesTable extends FoodEntries
 class FoodEntry extends DataClass implements Insertable<FoodEntry> {
   final int id;
   final DateTime timestamp;
+  final String name;
   final int kcal;
   final double proteinG;
   final MealType mealType;
@@ -201,6 +223,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
   const FoodEntry({
     required this.id,
     required this.timestamp,
+    required this.name,
     required this.kcal,
     required this.proteinG,
     required this.mealType,
@@ -212,6 +235,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['timestamp'] = Variable<DateTime>(timestamp);
+    map['name'] = Variable<String>(name);
     map['kcal'] = Variable<int>(kcal);
     map['protein_g'] = Variable<double>(proteinG);
     {
@@ -234,6 +258,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
     return FoodEntriesCompanion(
       id: Value(id),
       timestamp: Value(timestamp),
+      name: Value(name),
       kcal: Value(kcal),
       proteinG: Value(proteinG),
       mealType: Value(mealType),
@@ -250,6 +275,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
     return FoodEntry(
       id: serializer.fromJson<int>(json['id']),
       timestamp: serializer.fromJson<DateTime>(json['timestamp']),
+      name: serializer.fromJson<String>(json['name']),
       kcal: serializer.fromJson<int>(json['kcal']),
       proteinG: serializer.fromJson<double>(json['proteinG']),
       mealType: $FoodEntriesTable.$convertermealType.fromJson(
@@ -267,6 +293,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'timestamp': serializer.toJson<DateTime>(timestamp),
+      'name': serializer.toJson<String>(name),
       'kcal': serializer.toJson<int>(kcal),
       'proteinG': serializer.toJson<double>(proteinG),
       'mealType': serializer.toJson<String>(
@@ -282,6 +309,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
   FoodEntry copyWith({
     int? id,
     DateTime? timestamp,
+    String? name,
     int? kcal,
     double? proteinG,
     MealType? mealType,
@@ -290,6 +318,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
   }) => FoodEntry(
     id: id ?? this.id,
     timestamp: timestamp ?? this.timestamp,
+    name: name ?? this.name,
     kcal: kcal ?? this.kcal,
     proteinG: proteinG ?? this.proteinG,
     mealType: mealType ?? this.mealType,
@@ -300,6 +329,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
     return FoodEntry(
       id: data.id.present ? data.id.value : this.id,
       timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
+      name: data.name.present ? data.name.value : this.name,
       kcal: data.kcal.present ? data.kcal.value : this.kcal,
       proteinG: data.proteinG.present ? data.proteinG.value : this.proteinG,
       mealType: data.mealType.present ? data.mealType.value : this.mealType,
@@ -313,6 +343,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
     return (StringBuffer('FoodEntry(')
           ..write('id: $id, ')
           ..write('timestamp: $timestamp, ')
+          ..write('name: $name, ')
           ..write('kcal: $kcal, ')
           ..write('proteinG: $proteinG, ')
           ..write('mealType: $mealType, ')
@@ -323,14 +354,23 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, timestamp, kcal, proteinG, mealType, entryType, note);
+  int get hashCode => Object.hash(
+    id,
+    timestamp,
+    name,
+    kcal,
+    proteinG,
+    mealType,
+    entryType,
+    note,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is FoodEntry &&
           other.id == this.id &&
           other.timestamp == this.timestamp &&
+          other.name == this.name &&
           other.kcal == this.kcal &&
           other.proteinG == this.proteinG &&
           other.mealType == this.mealType &&
@@ -341,6 +381,7 @@ class FoodEntry extends DataClass implements Insertable<FoodEntry> {
 class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
   final Value<int> id;
   final Value<DateTime> timestamp;
+  final Value<String> name;
   final Value<int> kcal;
   final Value<double> proteinG;
   final Value<MealType> mealType;
@@ -349,6 +390,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
   const FoodEntriesCompanion({
     this.id = const Value.absent(),
     this.timestamp = const Value.absent(),
+    this.name = const Value.absent(),
     this.kcal = const Value.absent(),
     this.proteinG = const Value.absent(),
     this.mealType = const Value.absent(),
@@ -358,6 +400,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
   FoodEntriesCompanion.insert({
     this.id = const Value.absent(),
     required DateTime timestamp,
+    this.name = const Value.absent(),
     required int kcal,
     required double proteinG,
     required MealType mealType,
@@ -371,6 +414,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
   static Insertable<FoodEntry> custom({
     Expression<int>? id,
     Expression<DateTime>? timestamp,
+    Expression<String>? name,
     Expression<int>? kcal,
     Expression<double>? proteinG,
     Expression<String>? mealType,
@@ -380,6 +424,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (timestamp != null) 'timestamp': timestamp,
+      if (name != null) 'name': name,
       if (kcal != null) 'kcal': kcal,
       if (proteinG != null) 'protein_g': proteinG,
       if (mealType != null) 'meal_type': mealType,
@@ -391,6 +436,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
   FoodEntriesCompanion copyWith({
     Value<int>? id,
     Value<DateTime>? timestamp,
+    Value<String>? name,
     Value<int>? kcal,
     Value<double>? proteinG,
     Value<MealType>? mealType,
@@ -400,6 +446,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
     return FoodEntriesCompanion(
       id: id ?? this.id,
       timestamp: timestamp ?? this.timestamp,
+      name: name ?? this.name,
       kcal: kcal ?? this.kcal,
       proteinG: proteinG ?? this.proteinG,
       mealType: mealType ?? this.mealType,
@@ -416,6 +463,9 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
     }
     if (timestamp.present) {
       map['timestamp'] = Variable<DateTime>(timestamp.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
     }
     if (kcal.present) {
       map['kcal'] = Variable<int>(kcal.value);
@@ -444,6 +494,7 @@ class FoodEntriesCompanion extends UpdateCompanion<FoodEntry> {
     return (StringBuffer('FoodEntriesCompanion(')
           ..write('id: $id, ')
           ..write('timestamp: $timestamp, ')
+          ..write('name: $name, ')
           ..write('kcal: $kcal, ')
           ..write('proteinG: $proteinG, ')
           ..write('mealType: $mealType, ')
@@ -1609,6 +1660,7 @@ typedef $$FoodEntriesTableCreateCompanionBuilder =
     FoodEntriesCompanion Function({
       Value<int> id,
       required DateTime timestamp,
+      Value<String> name,
       required int kcal,
       required double proteinG,
       required MealType mealType,
@@ -1619,6 +1671,7 @@ typedef $$FoodEntriesTableUpdateCompanionBuilder =
     FoodEntriesCompanion Function({
       Value<int> id,
       Value<DateTime> timestamp,
+      Value<String> name,
       Value<int> kcal,
       Value<double> proteinG,
       Value<MealType> mealType,
@@ -1642,6 +1695,11 @@ class $$FoodEntriesTableFilterComposer
 
   ColumnFilters<DateTime> get timestamp => $composableBuilder(
     column: $table.timestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1692,6 +1750,11 @@ class $$FoodEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get kcal => $composableBuilder(
     column: $table.kcal,
     builder: (column) => ColumnOrderings(column),
@@ -1732,6 +1795,9 @@ class $$FoodEntriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get timestamp =>
       $composableBuilder(column: $table.timestamp, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
 
   GeneratedColumn<int> get kcal =>
       $composableBuilder(column: $table.kcal, builder: (column) => column);
@@ -1782,6 +1848,7 @@ class $$FoodEntriesTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<DateTime> timestamp = const Value.absent(),
+                Value<String> name = const Value.absent(),
                 Value<int> kcal = const Value.absent(),
                 Value<double> proteinG = const Value.absent(),
                 Value<MealType> mealType = const Value.absent(),
@@ -1790,6 +1857,7 @@ class $$FoodEntriesTableTableManager
               }) => FoodEntriesCompanion(
                 id: id,
                 timestamp: timestamp,
+                name: name,
                 kcal: kcal,
                 proteinG: proteinG,
                 mealType: mealType,
@@ -1800,6 +1868,7 @@ class $$FoodEntriesTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required DateTime timestamp,
+                Value<String> name = const Value.absent(),
                 required int kcal,
                 required double proteinG,
                 required MealType mealType,
@@ -1808,6 +1877,7 @@ class $$FoodEntriesTableTableManager
               }) => FoodEntriesCompanion.insert(
                 id: id,
                 timestamp: timestamp,
+                name: name,
                 kcal: kcal,
                 proteinG: proteinG,
                 mealType: mealType,
