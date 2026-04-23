@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
+import '../../ui/delete_confirm.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
+import '../../ui/show_save_error.dart';
 import '../../ui/timestamp_field.dart';
 
 class BodyWeightFormScreen extends ConsumerStatefulWidget {
@@ -77,35 +79,20 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not save weight: $e')));
+      showSaveError(context, 'save weight', e);
     }
   }
 
   Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete weight log?'),
-        content: Text(
+    final confirmed = await showDeleteConfirm(
+      context,
+      title: 'Delete weight log?',
+      message:
           'Delete ${formatWeight(widget.entry!.value, widget.entry!.unit)}? '
           'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
     final repo = ref.read(bodyWeightLogRepositoryProvider);
@@ -116,9 +103,7 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not delete weight: $e')));
+      showSaveError(context, 'delete weight', e);
     }
   }
 

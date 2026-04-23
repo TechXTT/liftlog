@@ -28,8 +28,15 @@ class FoodEntryRepository {
   Future<int> add(FoodEntriesCompanion entry) =>
       _db.into(_db.foodEntries).insert(entry);
 
-  Future<void> update(FoodEntry entry) =>
-      (_db.update(_db.foodEntries)..whereSamePrimaryKey(entry)).write(entry);
+  /// Writes every column of [entry], including nullable columns that are
+  /// being cleared (e.g. `note: null`). We use `replace` rather than `write`
+  /// because `write` serializes with `nullToAbsent: true` and would silently
+  /// skip a cleared `note` — see `lib/features/food/food_entry_form_screen.dart`
+  /// for the note-clear flow this enables. `replace` applies its own
+  /// `whereSamePrimaryKey` so the caller must not add one.
+  Future<void> update(FoodEntry entry) async {
+    await _db.update(_db.foodEntries).replace(entry);
+  }
 
   Future<int> delete(int id) =>
       (_db.delete(_db.foodEntries)..where((t) => t.id.equals(id))).go();
