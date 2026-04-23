@@ -6,6 +6,7 @@ import '../../data/repositories/food_entry_repository.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 import 'date_label.dart';
+import 'estimate_badge.dart';
 import 'food_entry_form_screen.dart';
 import 'food_providers.dart';
 
@@ -40,7 +41,18 @@ class FoodLogScreen extends ConsumerWidget {
                       itemBuilder: (context, i) {
                         final e = list[i];
                         return ListTile(
-                          title: Text(e.name.isEmpty ? '(unnamed)' : e.name),
+                          title: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  e.name.isEmpty ? '(unnamed)' : e.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              EstimateBadge(entryType: e.entryType),
+                            ],
+                          ),
                           subtitle: Text(
                             '${mealTypeLabel(e.mealType)} · ${formatKcal(e.kcal)} kcal · ${formatGrams(e.proteinG)} g protein',
                           ),

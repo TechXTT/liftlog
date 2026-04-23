@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 import '../food/date_label.dart';
+import '../food/estimate_badge.dart';
 import 'history_providers.dart';
 
 class PastDayFoodScreen extends ConsumerWidget {
@@ -34,7 +35,18 @@ class PastDayFoodScreen extends ConsumerWidget {
                 itemBuilder: (context, i) {
                   final e = list[i];
                   return ListTile(
-                    title: Text(e.name.isEmpty ? '(unnamed)' : e.name),
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            e.name.isEmpty ? '(unnamed)' : e.name,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        EstimateBadge(entryType: e.entryType),
+                      ],
+                    ),
                     subtitle: Text(
                       '${mealTypeLabel(e.mealType)} · ${formatKcal(e.kcal)} kcal · ${formatGrams(e.proteinG)} g protein',
                     ),

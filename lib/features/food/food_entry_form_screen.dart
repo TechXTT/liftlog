@@ -24,9 +24,15 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
   late final TextEditingController _kcalController;
   late final TextEditingController _proteinController;
   late MealType _mealType;
+  late bool _isEstimate;
   bool _saving = false;
 
   bool get _isEdit => widget.entry != null;
+
+  /// Toggle is visible when adding, or when editing an entry whose current
+  /// type is part of the flippable set (`manual` / `estimate`).
+  bool get _showEstimateToggle =>
+      !_isEdit || _canFlipType(widget.entry!.entryType);
 
   @override
   void initState() {
@@ -37,6 +43,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     _proteinController =
         TextEditingController(text: e == null ? '' : e.proteinG.toString());
     _mealType = e?.mealType ?? MealType.other;
+    _isEstimate = e?.entryType == FoodEntryType.estimate;
   }
 
   @override
@@ -55,13 +62,21 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
     final kcal = int.parse(_kcalController.text.trim());
     final protein = double.parse(_proteinController.text.trim());
 
+    final newType = _isEstimate ? FoodEntryType.estimate : FoodEntryType.manual;
+
     try {
       if (_isEdit) {
+        // Only flip between manual <-> estimate. Never rewrite savedFood /
+        // barcode types from the UI (no producers exist yet; preserving the
+        // stored type is the safe default).
+        final current = widget.entry!.entryType;
+        final nextType = _canFlipType(current) ? newType : current;
         await repo.update(widget.entry!.copyWith(
           name: name,
           kcal: kcal,
           proteinG: protein,
           mealType: _mealType,
+          entryType: nextType,
         ));
       } else {
         await repo.add(FoodEntriesCompanion.insert(
@@ -70,7 +85,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
           kcal: kcal,
           proteinG: protein,
           mealType: _mealType,
-          entryType: FoodEntryType.manual,
+          entryType: newType,
         ));
       }
       if (!mounted) return;
@@ -81,6 +96,24 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not save entry: $e')),
       );
+    }
+  }
+
+  /// Enumerates every [FoodEntryType] case explicitly — no fallthrough.
+  /// The edit toggle only exposes a flip between `manual` and `estimate`;
+  /// `savedFood` / `barcode` are not UI-editable today (no producers).
+  bool _canFlipType(FoodEntryType t) {
+    switch (t) {
+      case FoodEntryType.manual:
+        return true;
+      case FoodEntryType.estimate:
+        return true;
+      case FoodEntryType.savedFood:
+        // no UI producer today
+        return false;
+      case FoodEntryType.barcode:
+        // no UI producer today
+        return false;
     }
   }
 
@@ -187,6 +220,20 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
                   return null;
                 },
               ),
+              if (_showEstimateToggle) ...[
+                const SizedBox(height: 4),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('This is an estimate'),
+                  subtitle: const Text(
+                    'Tag entries you eyeballed so totals stay honest.',
+                  ),
+                  value: _isEstimate,
+                  onChanged: _saving
+                      ? null
+                      : (v) => setState(() => _isEstimate = v),
+                ),
+              ],
               if (_isEdit) ...[
                 const SizedBox(height: 32),
                 TextButton.icon(
