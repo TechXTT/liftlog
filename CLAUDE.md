@@ -127,6 +127,7 @@ Keep `pubspec.yaml` dependencies minimal. Every new dependency must be justified
 - `docs/design/README.md` — visual + copy contract: color tokens, type scale, iconography, empty-state / delete-confirm / validation copy recipes, forbidden vocabulary. Read this before any UI-touching change. When it disagrees with this file, this file wins.
 - `docs/design/tokens.css` — M3 CSS variable set (reference only; app reads from `ThemeData` at runtime).
 - `docs/design/assets/` — draft brand marks (not yet the app icon — founder decision pending).
+- `docs/export-format.md` — authoritative JSON shape for the Export all data (JSON) flow on the History tab. Bump `format_version` whenever the shape changes.
 
 ## Process references (vault = memory, not committed)
 - Strategy: `vault/01 Strategy/Strategy Memo.md`
