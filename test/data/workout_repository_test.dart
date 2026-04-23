@@ -141,4 +141,109 @@ void main() {
       ],
     );
   });
+
+  group('listRangeWithSets', () {
+    test('returns only sessions in [from, to) with their sets, '
+        'ordered by orderIndex', () async {
+      // Before window.
+      final oldId = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 3, 1),
+      ));
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: oldId,
+        exerciseName: 'Old lift',
+        reps: 5,
+        weight: 80,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 0,
+      ));
+
+      // Inside window — two sessions, 2 + 1 sets.
+      final aId = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 20, 12),
+      ));
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: aId,
+        exerciseName: 'Squat',
+        reps: 5,
+        weight: 100,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 1,
+      ));
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: aId,
+        exerciseName: 'Squat',
+        reps: 5,
+        weight: 100,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.planned,
+        orderIndex: 0,
+      ));
+
+      final bId = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 22, 18),
+      ));
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: bId,
+        exerciseName: 'Bench',
+        reps: 8,
+        weight: 80,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 0,
+      ));
+
+      // Outside window (after `to`).
+      final laterId = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 5, 1),
+      ));
+      await sets.add(ExerciseSetsCompanion.insert(
+        sessionId: laterId,
+        exerciseName: 'Future lift',
+        reps: 5,
+        weight: 80,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 0,
+      ));
+
+      final result = await sessions.listRangeWithSets(
+        DateTime(2026, 4, 20),
+        DateTime(2026, 4, 27),
+      );
+
+      expect(result.length, 2,
+          reason: 'only sessions in [from, to) — oldId and laterId excluded');
+      expect(result.map((r) => r.session.id), [aId, bId]);
+      // Session A sets: orderIndex ascending (planned first, completed second).
+      expect(result[0].sets.map((s) => s.orderIndex), [0, 1]);
+      expect(result[0].sets.map((s) => s.status),
+          [WorkoutSetStatus.planned, WorkoutSetStatus.completed]);
+      expect(result[1].sets.length, 1);
+    });
+
+    test('returns sessions with no sets as an empty sets list', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 21),
+      ));
+
+      final result = await sessions.listRangeWithSets(
+        DateTime(2026, 4, 20),
+        DateTime(2026, 4, 27),
+      );
+      expect(result.length, 1);
+      expect(result.single.session.id, id);
+      expect(result.single.sets, isEmpty);
+    });
+
+    test('empty window returns empty list', () async {
+      final result = await sessions.listRangeWithSets(
+        DateTime(2026, 4, 20),
+        DateTime(2026, 4, 27),
+      );
+      expect(result, isEmpty);
+    });
+  });
 }

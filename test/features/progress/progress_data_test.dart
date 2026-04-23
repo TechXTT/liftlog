@@ -18,6 +18,25 @@ FoodEntry _food(DateTime t, int kcal) => FoodEntry(
       note: null,
     );
 
+WorkoutSession _session(int id, DateTime startedAt) => WorkoutSession(
+      id: id,
+      startedAt: startedAt,
+      endedAt: null,
+      note: null,
+    );
+
+ExerciseSet _set(int sessionId, WorkoutSetStatus status, {int order = 0}) =>
+    ExerciseSet(
+      id: sessionId * 100 + order,
+      sessionId: sessionId,
+      exerciseName: 'Bench Press',
+      reps: 8,
+      weight: 80.0,
+      weightUnit: WeightUnit.kg,
+      status: status,
+      orderIndex: order,
+    );
+
 void main() {
   group('resolveWindow', () {
     final now = DateTime(2026, 4, 23, 15, 30); // mid-day
@@ -163,6 +182,143 @@ void main() {
       expect(s.days.single.kcal, 0);
       expect(s.isEmpty, isTrue);
       expect(s.loggedDayCount, 0);
+    });
+  });
+
+  group('buildWeeklyVolumeSeries', () {
+    // Anchor "now" on Thursday 2026-04-23 so the current ISO week starts
+    // Monday 2026-04-20. That makes bucket math easy to eyeball.
+    final now = DateTime(2026, 4, 23, 15, 30);
+
+    test('emits 8 buckets with Monday anchors, oldest first', () {
+      final s = buildWeeklyVolumeSeries(const [], const [], now);
+      expect(s.weekStarts.length, 8);
+      expect(s.completedSets.length, 8);
+      // Current week's Monday is the last bucket.
+      expect(s.weekStarts.last, DateTime(2026, 4, 20));
+      // 7 weeks before that is the first bucket.
+      expect(s.weekStarts.first, DateTime(2026, 3, 2));
+      // Every bucket is a local-midnight Monday. Compare by calendar components
+      // rather than `Duration.inDays` — on DST weeks two consecutive civil
+      // Mondays are only 23 or 25 wall-clock hours apart, so `.inDays` rounds
+      // to 6, not 7. Calendar-day arithmetic is what we care about.
+      for (var i = 0; i < s.weekStarts.length; i++) {
+        final monday = s.weekStarts[i];
+        expect(monday.weekday, DateTime.monday,
+            reason: 'bucket $i must start on a Monday');
+        expect(monday.hour, 0);
+        expect(monday.minute, 0);
+        final expected = DateTime(2026, 4, 20 - 7 * (7 - i));
+        expect(monday, expected, reason: 'bucket $i mismatch');
+      }
+    });
+
+    test('empty input: all weeks zero, isEmpty true', () {
+      final s = buildWeeklyVolumeSeries(const [], const [], now);
+      expect(s.completedSets, everyElement(0));
+      expect(s.isEmpty, isTrue);
+    });
+
+    test('completed sets count, planned and skipped do not — current week', () {
+      // Wednesday 2026-04-22 → inside current week (Monday 4/20).
+      final session = _session(1, DateTime(2026, 4, 22, 18));
+      final sets = [
+        _set(1, WorkoutSetStatus.completed, order: 0),
+        _set(1, WorkoutSetStatus.completed, order: 1),
+        _set(1, WorkoutSetStatus.completed, order: 2),
+        _set(1, WorkoutSetStatus.planned, order: 3),
+        _set(1, WorkoutSetStatus.planned, order: 4),
+        _set(1, WorkoutSetStatus.skipped, order: 5),
+      ];
+      final s = buildWeeklyVolumeSeries(sets, [session], now);
+      expect(s.completedSets.last, 3,
+          reason: 'only 3 completed sets count; planned and skipped excluded');
+      for (var i = 0; i < 7; i++) {
+        expect(s.completedSets[i], 0);
+      }
+      expect(s.isEmpty, isFalse);
+    });
+
+    test('sets across two different weeks bucket into their own weeks', () {
+      // Week of 4/20: 2 completed sets (current week, index 7).
+      final sessionA = _session(1, DateTime(2026, 4, 21, 18));
+      // Week of 4/13: 4 completed sets (prior week, index 6).
+      final sessionB = _session(2, DateTime(2026, 4, 15, 12));
+      final sets = [
+        _set(1, WorkoutSetStatus.completed, order: 0),
+        _set(1, WorkoutSetStatus.completed, order: 1),
+        _set(2, WorkoutSetStatus.completed, order: 0),
+        _set(2, WorkoutSetStatus.completed, order: 1),
+        _set(2, WorkoutSetStatus.completed, order: 2),
+        _set(2, WorkoutSetStatus.completed, order: 3),
+      ];
+      final s = buildWeeklyVolumeSeries(sets, [sessionA, sessionB], now);
+      expect(s.completedSets[7], 2, reason: 'current week');
+      expect(s.completedSets[6], 4, reason: 'prior week');
+      for (var i = 0; i < 6; i++) {
+        expect(s.completedSets[i], 0);
+      }
+    });
+
+    test('all-skipped 8-week window: isEmpty true', () {
+      // One session per week for all 8 weeks, each with only skipped sets.
+      final sessions = <WorkoutSession>[];
+      final sets = <ExerciseSet>[];
+      for (var i = 0; i < 8; i++) {
+        final monday = DateTime(2026, 3, 2 + 7 * i);
+        final session =
+            _session(i + 1, DateTime(monday.year, monday.month, monday.day, 12));
+        sessions.add(session);
+        sets.add(_set(i + 1, WorkoutSetStatus.skipped, order: 0));
+        sets.add(_set(i + 1, WorkoutSetStatus.skipped, order: 1));
+      }
+      final s = buildWeeklyVolumeSeries(sets, sessions, now);
+      expect(s.completedSets, everyElement(0));
+      expect(s.isEmpty, isTrue);
+    });
+
+    test('sessions outside the 8-week window are ignored', () {
+      // 9 weeks back — before windowStart.
+      final oldSession = _session(1, DateTime(2026, 2, 20, 12));
+      final sets = [
+        _set(1, WorkoutSetStatus.completed, order: 0),
+        _set(1, WorkoutSetStatus.completed, order: 1),
+      ];
+      final s = buildWeeklyVolumeSeries(sets, [oldSession], now);
+      expect(s.isEmpty, isTrue,
+          reason: 'sets attached to out-of-window sessions must be ignored');
+    });
+
+    test('orphan sets (session not in list) are ignored', () {
+      final s = buildWeeklyVolumeSeries(
+        [_set(99, WorkoutSetStatus.completed)],
+        const [],
+        now,
+      );
+      expect(s.isEmpty, isTrue);
+    });
+
+    test('session on Monday midnight buckets to that Monday, not previous week',
+        () {
+      final session = _session(1, DateTime(2026, 4, 20));
+      final s = buildWeeklyVolumeSeries(
+        [_set(1, WorkoutSetStatus.completed)],
+        [session],
+        now,
+      );
+      expect(s.completedSets[7], 1);
+      expect(s.completedSets[6], 0);
+    });
+
+    test('session on Sunday 23:59 buckets to the Monday before it', () {
+      final session = _session(1, DateTime(2026, 4, 19, 23, 59));
+      final s = buildWeeklyVolumeSeries(
+        [_set(1, WorkoutSetStatus.completed)],
+        [session],
+        now,
+      );
+      expect(s.completedSets[6], 1, reason: 'prior week (Mon 4/13)');
+      expect(s.completedSets[7], 0);
     });
   });
 }
