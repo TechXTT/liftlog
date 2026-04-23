@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
+import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 
 class BodyWeightFormScreen extends ConsumerStatefulWidget {
@@ -72,7 +73,7 @@ class _BodyWeightFormScreenState extends ConsumerState<BodyWeightFormScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete weight log?'),
         content: Text(
-          'Delete ${widget.entry!.value} ${weightUnitLabel(widget.entry!.unit)}? '
+          'Delete ${formatWeight(widget.entry!.value, widget.entry!.unit)}? '
           'This cannot be undone.',
         ),
         actions: [

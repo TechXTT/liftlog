@@ -48,8 +48,8 @@ void main() {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
-    expect(find.text('176.0 lb'), findsOneWidget);
-    expect(find.text('80.0 kg'), findsOneWidget);
+    expect(find.text('176 lb'), findsOneWidget);
+    expect(find.text('80 kg'), findsOneWidget);
 
     await _drainDriftTimers(tester);
   });

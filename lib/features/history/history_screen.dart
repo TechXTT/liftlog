@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ui/formatters.dart';
 import '../food/date_label.dart';
 import '../workouts/workout_session_screen.dart';
 import 'history_providers.dart';
@@ -28,7 +29,7 @@ class HistoryScreen extends ConsumerWidget {
                         ListTile(
                           title: Text(shortDate(d.day)),
                           subtitle: Text(
-                            '${d.kcal} kcal · ${_formatProtein(d.proteinG)}g protein',
+                            '${formatKcal(d.kcal)} kcal · ${formatGrams(d.proteinG)} g protein',
                           ),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
@@ -115,11 +116,6 @@ class _ErrorInline extends StatelessWidget {
       child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
     );
   }
-}
-
-String _formatProtein(double g) {
-  if (g == g.roundToDouble()) return g.toStringAsFixed(0);
-  return g.toStringAsFixed(1);
 }
 
 String _workoutSubtitle(DateTime start, DateTime? end) {

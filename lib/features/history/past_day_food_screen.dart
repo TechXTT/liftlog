@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 import '../food/date_label.dart';
 import 'history_providers.dart';
@@ -35,7 +36,7 @@ class PastDayFoodScreen extends ConsumerWidget {
                   return ListTile(
                     title: Text(e.name.isEmpty ? '(unnamed)' : e.name),
                     subtitle: Text(
-                      '${mealTypeLabel(e.mealType)} · ${e.kcal} kcal · ${_formatProtein(e.proteinG)}g protein',
+                      '${mealTypeLabel(e.mealType)} · ${formatKcal(e.kcal)} kcal · ${formatGrams(e.proteinG)} g protein',
                     ),
                     trailing: Text(_formatTime(e.timestamp)),
                   );
@@ -46,11 +47,6 @@ class PastDayFoodScreen extends ConsumerWidget {
       ),
     );
   }
-}
-
-String _formatProtein(double g) {
-  if (g == g.roundToDouble()) return g.toStringAsFixed(0);
-  return g.toStringAsFixed(1);
 }
 
 String _formatTime(DateTime t) {

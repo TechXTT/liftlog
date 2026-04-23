@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/database.dart';
 import '../../providers/app_providers.dart';
+import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 import '../food/date_label.dart';
 import 'exercise_set_form_screen.dart';
@@ -67,7 +68,7 @@ class WorkoutSessionScreen extends ConsumerWidget {
                         return ListTile(
                           title: Text(s.exerciseName),
                           subtitle: Text(
-                            '${s.reps} reps · ${s.weight} ${weightUnitLabel(s.weightUnit)} · ${workoutSetStatusLabel(s.status)}',
+                            '${s.reps} reps · ${formatWeight(s.weight, s.weightUnit)} · ${workoutSetStatusLabel(s.status)}',
                           ),
                           onTap: () =>
                               _editSet(context, s, sessionId, list.length),
