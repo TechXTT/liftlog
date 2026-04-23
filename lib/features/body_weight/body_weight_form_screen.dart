@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
-import 'weight_unit_label.dart';
+import '../../ui/labels.dart';
 
 class BodyWeightFormScreen extends ConsumerStatefulWidget {
   const BodyWeightFormScreen({super.key, this.entry});

@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
-import 'meal_type_label.dart';
+import '../../ui/labels.dart';
 
 class FoodEntryFormScreen extends ConsumerStatefulWidget {
   const FoodEntryFormScreen({super.key, this.entry});
