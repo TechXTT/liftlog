@@ -5,6 +5,7 @@ import '../../ui/labels.dart';
 import 'kcal_bars.dart';
 import 'progress_data.dart';
 import 'progress_providers.dart';
+import 'weekly_volume_bars.dart';
 import 'weight_sparkline.dart';
 
 /// Progress tab v1. Top: 7 / 30 / all segmented selector. Below: body-weight
@@ -18,6 +19,7 @@ class ProgressScreen extends ConsumerWidget {
     final window = ref.watch(progressWindowProvider);
     final weight = ref.watch(weightSeriesProvider);
     final kcal = ref.watch(kcalSeriesProvider);
+    final weeklyVolume = ref.watch(weeklyVolumeProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Progress')),
@@ -51,6 +53,8 @@ class ProgressScreen extends ConsumerWidget {
             ),
           ),
           _CombinedOrSections(weight: weight, kcal: kcal),
+          const SizedBox(height: 16),
+          _WeeklyVolumeSection(series: weeklyVolume),
         ],
       ),
     );
@@ -157,6 +161,37 @@ class _KcalSection extends StatelessWidget {
                 ),
           loading: () => const SizedBox(height: KcalBars.height),
           error: (err, _) => _ErrorInline(text: 'Kcal data: $err'),
+        ),
+      ],
+    );
+  }
+}
+
+class _WeeklyVolumeSection extends StatelessWidget {
+  const _WeeklyVolumeSection({required this.series});
+
+  final AsyncValue<WeeklyVolumeSeries> series;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionHeader(
+          label: 'Workouts — completed sets/week (last 8 weeks)',
+        ),
+        series.when(
+          // Distinct empty copy — we don't render 8 blank bars when isEmpty.
+          data: (s) => s.isEmpty
+              ? const _EmptyInline(
+                  text: 'No completed sets in the last 8 weeks.',
+                )
+              : Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: WeeklyVolumeBars(series: s),
+                ),
+          loading: () => const SizedBox(height: WeeklyVolumeBars.height),
+          error: (err, _) => _ErrorInline(text: 'Volume data: $err'),
         ),
       ],
     );

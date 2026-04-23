@@ -83,6 +83,15 @@ class KcalSeries {
 /// bucketing stays testable without touching [DateTime.now].
 DateTime _dayOf(DateTime t) => DateTime(t.year, t.month, t.day);
 
+/// Returns the local-midnight Monday of the ISO week that [t] falls in.
+/// [DateTime.weekday] is `1` for Monday through `7` for Sunday, so subtracting
+/// `(weekday - 1)` civil days always lands on that week's Monday. Calendar
+/// arithmetic (not `Duration`) so DST-day weeks don't drift by an hour.
+DateTime _mondayOf(DateTime t) {
+  final day = _dayOf(t);
+  return DateTime(day.year, day.month, day.day - (day.weekday - 1));
+}
+
 /// Builds a [WeightSeries] from raw logs. Responsibilities:
 ///
 /// 1. Pick a dominant unit. If logs are in more than one unit, the most recent
@@ -168,4 +177,102 @@ KcalSeries buildKcalSeries(
     cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
   }
   return KcalSeries(days: days);
+}
+
+/// Output of the weekly-volume aggregator. `weekStarts[i]` is the local
+/// midnight of the Monday that starts week `i`; `completedSets[i]` is the
+/// count of sets with `WorkoutSetStatus.completed` whose parent session's
+/// `startedAt` falls inside `[weekStarts[i], weekStarts[i] + 7 days)`.
+///
+/// Both lists have identical length (the fixed 8-week window). `isEmpty`
+/// is true iff every bucket is zero — the UI uses that for the dedicated
+/// empty-state copy rather than rendering eight blank bars.
+class WeeklyVolumeSeries {
+  const WeeklyVolumeSeries({
+    required this.weekStarts,
+    required this.completedSets,
+  });
+
+  final List<DateTime> weekStarts;
+  final List<int> completedSets;
+
+  bool get isEmpty => completedSets.every((c) => c == 0);
+  int get maxCompletedSets => completedSets.isEmpty
+      ? 0
+      : completedSets.reduce((a, b) => a > b ? a : b);
+}
+
+/// Builds a [WeeklyVolumeSeries] covering the 8 most recent ISO weeks ending
+/// at the week of `now`. Sets are bucketed by their parent session's
+/// `startedAt` (not by the set's own create time — sets don't carry one in
+/// this schema). Only `WorkoutSetStatus.completed` sets count toward volume.
+///
+/// ISO week: Monday-to-Sunday. `weekStarts[0]` is the oldest Monday in the
+/// window, `weekStarts[7]` is the Monday of `now`'s week.
+WeeklyVolumeSeries buildWeeklyVolumeSeries(
+  List<ExerciseSet> sets,
+  List<WorkoutSession> sessions,
+  DateTime now,
+) {
+  // Build the 8 Mondays, oldest first. Calendar arithmetic via DateTime()
+  // — never Duration — so DST-week boundaries are always exactly 7 civil
+  // days apart.
+  final currentMonday = _mondayOf(now);
+  final weekStarts = <DateTime>[
+    for (var i = 7; i >= 0; i--)
+      DateTime(currentMonday.year, currentMonday.month, currentMonday.day - 7 * i),
+  ];
+  final windowStart = weekStarts.first;
+  final windowEnd = DateTime(
+    currentMonday.year,
+    currentMonday.month,
+    currentMonday.day + 7,
+  );
+
+  // Index Monday → bucket position (0..7). Cheaper and DST-safe than
+  // re-deriving bucket index from a civil-day difference — we hit a DST
+  // week in testing where `Duration.inDays` rounded to 6 instead of 7.
+  final mondayIndex = <DateTime, int>{
+    for (var i = 0; i < weekStarts.length; i++) weekStarts[i]: i,
+  };
+
+  // sessionId → startedAt for O(1) lookup when iterating sets. Sessions
+  // outside the 8-week window never contribute, so their sets are skipped.
+  final sessionStart = <int, DateTime>{};
+  for (final s in sessions) {
+    if (s.startedAt.isBefore(windowStart)) continue;
+    if (!s.startedAt.isBefore(windowEnd)) continue;
+    sessionStart[s.id] = s.startedAt;
+  }
+
+  final counts = List<int>.filled(8, 0);
+  for (final set in sets) {
+    final sessionStartedAt = sessionStart[set.sessionId];
+    if (sessionStartedAt == null) continue; // session not in 8-week window
+
+    // Exhaustive switch over WorkoutSetStatus: planned & skipped are
+    // deliberately excluded because "weekly volume" in this app means
+    // work actually performed. A planned set is an intent that may never
+    // happen; a skipped set is explicit non-completion — neither
+    // represents volume a user should feel credit for.
+    bool countThis;
+    switch (set.status) {
+      case WorkoutSetStatus.planned:
+        countThis = false;
+      case WorkoutSetStatus.completed:
+        countThis = true;
+      case WorkoutSetStatus.skipped:
+        countThis = false;
+    }
+    if (!countThis) continue;
+
+    // Bucket by Monday-of-week. Look the set's Monday up in the pre-built
+    // index — safer than computing a civil-day difference here.
+    final weekMonday = _mondayOf(sessionStartedAt);
+    final index = mondayIndex[weekMonday];
+    if (index == null) continue; // defensive: outside window
+    counts[index] += 1;
+  }
+
+  return WeeklyVolumeSeries(weekStarts: weekStarts, completedSets: counts);
 }

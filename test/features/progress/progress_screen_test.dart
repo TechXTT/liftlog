@@ -7,10 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
+import 'package:liftlog_app/data/repositories/exercise_set_repository.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
+import 'package:liftlog_app/data/repositories/workout_session_repository.dart';
 import 'package:liftlog_app/features/progress/progress_data.dart';
 import 'package:liftlog_app/features/progress/progress_providers.dart';
 import 'package:liftlog_app/features/progress/progress_screen.dart';
+import 'package:liftlog_app/features/progress/weekly_volume_bars.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
 import 'package:liftlog_app/shell/root_shell.dart';
 
@@ -241,6 +244,80 @@ void main() {
       findsNothing,
     );
     expect(find.text('No calorie data for this window.'), findsNothing);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets(
+      'weekly-volume: empty section copy renders when there are no completed sets',
+      (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    // Dedicated copy for the volume section — distinct from the weight /
+    // kcal empty-state copy and from the combined empty message.
+    expect(
+      find.text('Workouts — completed sets/week (last 8 weeks)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('No completed sets in the last 8 weeks.'),
+      findsOneWidget,
+    );
+    // Bars must not render when the series is empty.
+    expect(find.byType(WeeklyVolumeBars), findsNothing);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets(
+      'weekly-volume: bars render when there are completed sets, '
+      'planned/skipped excluded', (tester) async {
+    final sessionRepo = WorkoutSessionRepository(db);
+    final setRepo = ExerciseSetRepository(db);
+
+    // Session this current week (Monday 2026-04-20). fakeNow is Thu 4/23.
+    final sessionId = await sessionRepo.add(WorkoutSessionsCompanion.insert(
+      startedAt: DateTime(2026, 4, 22, 18),
+    ));
+    // 3 completed, 2 planned, 1 skipped → only 3 counted.
+    final statuses = [
+      WorkoutSetStatus.completed,
+      WorkoutSetStatus.completed,
+      WorkoutSetStatus.completed,
+      WorkoutSetStatus.planned,
+      WorkoutSetStatus.planned,
+      WorkoutSetStatus.skipped,
+    ];
+    for (var i = 0; i < statuses.length; i++) {
+      await setRepo.add(ExerciseSetsCompanion.insert(
+        sessionId: sessionId,
+        exerciseName: 'Bench Press',
+        reps: 8,
+        weight: 80.0,
+        weightUnit: WeightUnit.kg,
+        status: statuses[i],
+        orderIndex: i,
+      ));
+    }
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(WeeklyVolumeBars), findsOneWidget);
+    expect(
+      find.text('No completed sets in the last 8 weeks.'),
+      findsNothing,
+    );
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ProgressScreen)),
+    );
+    final volume = await container.read(weeklyVolumeProvider.future);
+    expect(volume.completedSets.length, 8);
+    expect(volume.completedSets.last, 3,
+        reason: 'only completed sets count; planned and skipped excluded');
+    expect(volume.isEmpty, isFalse);
 
     await _drainDriftTimers(tester);
   });
