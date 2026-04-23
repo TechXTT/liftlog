@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../providers/app_providers.dart';
+import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 
 class FoodEntryFormScreen extends ConsumerStatefulWidget {
@@ -89,7 +90,7 @@ class _FoodEntryFormScreenState extends ConsumerState<FoodEntryFormScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete entry?'),
         content: Text(
-          'Delete "${widget.entry!.name}" (${widget.entry!.kcal} kcal)? '
+          'Delete "${widget.entry!.name}" (${formatKcal(widget.entry!.kcal)} kcal)? '
           'This cannot be undone.',
         ),
         actions: [

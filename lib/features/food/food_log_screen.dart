@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/database.dart';
 import '../../data/repositories/food_entry_repository.dart';
+import '../../ui/formatters.dart';
 import '../../ui/labels.dart';
 import 'date_label.dart';
 import 'food_entry_form_screen.dart';
@@ -41,7 +42,7 @@ class FoodLogScreen extends ConsumerWidget {
                         return ListTile(
                           title: Text(e.name.isEmpty ? '(unnamed)' : e.name),
                           subtitle: Text(
-                            '${mealTypeLabel(e.mealType)} · ${e.kcal} kcal · ${_formatProtein(e.proteinG)}g protein',
+                            '${mealTypeLabel(e.mealType)} · ${formatKcal(e.kcal)} kcal · ${formatGrams(e.proteinG)} g protein',
                           ),
                           trailing: Text(_formatTime(e.timestamp)),
                           onTap: () => _openForm(context, entry: e),
@@ -85,8 +86,8 @@ class _TotalsHeader extends StatelessWidget {
             data: (t) => Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _Metric(value: '${t.kcal}', label: 'kcal'),
-                _Metric(value: _formatProtein(t.proteinG), label: 'g protein'),
+                _Metric(value: formatKcal(t.kcal), label: 'kcal'),
+                _Metric(value: formatGrams(t.proteinG), label: 'g protein'),
               ],
             ),
             loading: () => const SizedBox(height: 48),
@@ -143,11 +144,6 @@ class _ErrorView extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatProtein(double g) {
-  if (g == g.roundToDouble()) return g.toStringAsFixed(0);
-  return g.toStringAsFixed(1);
 }
 
 String _formatTime(DateTime t) {

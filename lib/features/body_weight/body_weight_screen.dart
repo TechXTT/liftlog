@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/database.dart';
-import '../../ui/labels.dart';
+import '../../ui/formatters.dart';
 import '../food/date_label.dart';
 import 'body_weight_form_screen.dart';
 import 'body_weight_providers.dart';
@@ -37,7 +37,7 @@ class BodyWeightScreen extends ConsumerWidget {
                 itemBuilder: (context, i) {
                   final e = list[i];
                   return ListTile(
-                    title: Text('${e.value} ${weightUnitLabel(e.unit)}'),
+                    title: Text(formatWeight(e.value, e.unit)),
                     subtitle: Text(shortDate(e.timestamp)),
                     onTap: () => _openForm(context, entry: e),
                   );
