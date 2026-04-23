@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'features/food/food_log_screen.dart';
+import 'shell/root_shell.dart';
 
 void main() {
   runApp(const ProviderScope(child: LiftLogApp()));
@@ -18,7 +18,7 @@ class LiftLogApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const FoodLogScreen(),
+      home: const RootShell(),
     );
   }
 }

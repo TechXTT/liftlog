@@ -20,4 +20,9 @@ class BodyWeightLogRepository {
       (_db.select(_db.bodyWeightLogs)
             ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
           .watch();
+
+  Future<List<BodyWeightLog>> listAll() =>
+      (_db.select(_db.bodyWeightLogs)
+            ..orderBy([(t) => OrderingTerm.desc(t.timestamp)]))
+          .get();
 }
