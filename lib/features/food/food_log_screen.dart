@@ -9,6 +9,7 @@ import 'date_label.dart';
 import 'estimate_badge.dart';
 import 'food_entry_form_screen.dart';
 import 'food_providers.dart';
+import 'recent_foods_strip.dart';
 
 class FoodLogScreen extends ConsumerWidget {
   const FoodLogScreen({super.key});
@@ -19,9 +20,7 @@ class FoodLogScreen extends ConsumerWidget {
     final totals = ref.watch(todayTotalsProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('LiftLog'),
-      ),
+      appBar: AppBar(title: const Text('LiftLog')),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openForm(context),
         child: const Icon(Icons.add),
@@ -30,6 +29,7 @@ class FoodLogScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _TotalsHeader(totals: totals),
+          const RecentFoodsStrip(),
           const Divider(height: 1),
           Expanded(
             child: entries.when(
@@ -69,9 +69,9 @@ class FoodLogScreen extends ConsumerWidget {
   }
 
   void _openForm(BuildContext context, {FoodEntry? entry}) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => FoodEntryFormScreen(entry: entry),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => FoodEntryFormScreen(entry: entry)),
+    );
   }
 }
 
@@ -117,10 +117,12 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(children: [
-      Text(value, style: theme.textTheme.headlineMedium),
-      Text(label, style: theme.textTheme.titleMedium),
-    ]);
+    return Column(
+      children: [
+        Text(value, style: theme.textTheme.headlineMedium),
+        Text(label, style: theme.textTheme.titleMedium),
+      ],
+    );
   }
 }
 
