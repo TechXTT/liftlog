@@ -21,7 +21,8 @@ void main() {
 
     expect(find.byType(MaterialApp), findsOneWidget);
     expect(find.text('LiftLog'), findsOneWidget);
-    expect(find.text('kcal today'), findsOneWidget);
+    expect(find.textContaining('Today,'), findsOneWidget);
+    expect(find.text('kcal'), findsOneWidget);
     expect(find.text('g protein'), findsOneWidget);
     expect(find.textContaining('No entries yet'), findsOneWidget);
 
