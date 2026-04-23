@@ -66,7 +66,6 @@ class KcalSeries {
 }) {
   // Use calendar-day arithmetic (via DateTime constructor) rather than
   // `Duration` so DST transitions can't slip the window into the wrong day.
-  final todayStart = DateTime(now.year, now.month, now.day);
   final to = DateTime(now.year, now.month, now.day + 1);
   switch (window) {
     case ProgressWindow.sevenDays:
