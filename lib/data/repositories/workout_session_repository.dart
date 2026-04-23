@@ -22,7 +22,16 @@ class WorkoutSessionRepository {
             ..orderBy([(t) => OrderingTerm.desc(t.startedAt)]))
           .watch();
 
+  Future<List<WorkoutSession>> listAll() =>
+      (_db.select(_db.workoutSessions)
+            ..orderBy([(t) => OrderingTerm.desc(t.startedAt)]))
+          .get();
+
   Future<WorkoutSession?> findById(int id) =>
       (_db.select(_db.workoutSessions)..where((t) => t.id.equals(id)))
           .getSingleOrNull();
+
+  Stream<WorkoutSession?> watchById(int id) =>
+      (_db.select(_db.workoutSessions)..where((t) => t.id.equals(id)))
+          .watchSingleOrNull();
 }

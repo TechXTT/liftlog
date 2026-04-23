@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/body_weight/body_weight_screen.dart';
 import '../features/food/food_log_screen.dart';
+import '../features/workouts/workout_list_screen.dart';
 
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
@@ -16,7 +17,7 @@ class _RootShellState extends State<RootShell> {
   static const _tabs = <Widget>[
     FoodLogScreen(),
     BodyWeightScreen(),
-    _WorkoutsPlaceholder(),
+    WorkoutListScreen(),
   ];
 
   @override
@@ -48,22 +49,3 @@ class _RootShellState extends State<RootShell> {
   }
 }
 
-class _WorkoutsPlaceholder extends StatelessWidget {
-  const _WorkoutsPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Workouts')),
-      body: const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Workout logging arrives in the next update.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
-}

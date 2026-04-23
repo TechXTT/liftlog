@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/database.dart';
 import '../../data/repositories/food_entry_repository.dart';
+import '../../ui/labels.dart';
 import 'date_label.dart';
 import 'food_entry_form_screen.dart';
 import 'food_providers.dart';
-import 'meal_type_label.dart';
 
 class FoodLogScreen extends ConsumerWidget {
   const FoodLogScreen({super.key});

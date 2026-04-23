@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/database.dart';
+import '../../ui/labels.dart';
 import '../food/date_label.dart';
 import 'body_weight_form_screen.dart';
 import 'body_weight_providers.dart';
-import 'weight_unit_label.dart';
 
 class BodyWeightScreen extends ConsumerWidget {
   const BodyWeightScreen({super.key});
