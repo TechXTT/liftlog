@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../features/body_weight/body_weight_screen.dart';
 import '../features/food/food_log_screen.dart';
 import '../features/history/history_screen.dart';
+import '../features/progress/progress_screen.dart';
 import '../features/workouts/workout_list_screen.dart';
 
 class RootShell extends StatefulWidget {
@@ -20,6 +21,7 @@ class _RootShellState extends State<RootShell> {
     BodyWeightScreen(),
     WorkoutListScreen(),
     HistoryScreen(),
+    ProgressScreen(),
   ];
 
   @override
@@ -49,6 +51,11 @@ class _RootShellState extends State<RootShell> {
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history),
             label: 'History',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.show_chart_outlined),
+            selectedIcon: Icon(Icons.show_chart),
+            label: 'Progress',
           ),
         ],
       ),
