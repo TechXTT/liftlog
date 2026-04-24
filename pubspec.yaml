@@ -56,6 +56,19 @@ dependencies:
 # revisit: share_plus 13.x on Windows would need the newer `^6` line.
 dependency_overrides:
   win32: ^5.9.0
+  # Stopgap: device_info_plus 12.x calls NSProcessInfo.isiOSAppOnVision
+  # unguarded (no @available check). That selector is absent from
+  # Xcode 26.0.1's iOS 26.0 SDK — compiles locally on Xcode 26.4+ only.
+  # GitHub's macos-latest runner only ships Xcode 26.0.1 in its Xcode 26
+  # line, so CI iOS build fails. 11.3.0 predates the unguarded call.
+  # `health 13.3.1`'s runtime code that actually uses device_info_plus
+  # only needs platform-info APIs present in 11.x; verified no 12-specific
+  # API is required on the health code path. Revisit when either:
+  # (a) device_info_plus publishes a version with an @available guard,
+  # (b) GitHub's runner image ships Xcode 26.4+,
+  # (c) we retire `health` in favour of a lighter HealthKit bridge.
+  # Tracked in vault/current_state.md → Open items.
+  device_info_plus: 11.3.0
 
 dev_dependencies:
   flutter_test:
