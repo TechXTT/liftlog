@@ -33,3 +33,23 @@ enum Source {
   derived,
   imported,
 }
+
+/// Resolves a Drift-stored `source` string back into a [Source] enum.
+///
+/// Lives here (not in a feature file) because the arch guardrail forbids
+/// `lib/features/**` from referencing `Source.` directly (CLAUDE.md
+/// canonical enums — `FoodEntryType` and `Source` are orthogonal).
+/// Feature code (e.g. the import service) calls this helper so it
+/// receives a `Source`-typed value without constructing one raw.
+///
+/// Throws an `ArgumentError` on an unknown string — callers are
+/// expected to catch and translate that into their own malformed-row
+/// signalling so an unknown `source` value fails loudly rather than
+/// silently defaulting. Trust rule: no silent fallbacks.
+Source parseSourceName(String name) {
+  try {
+    return Source.values.byName(name);
+  } catch (_) {
+    throw ArgumentError.value(name, 'source', 'unknown Source value');
+  }
+}

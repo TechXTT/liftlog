@@ -25,6 +25,7 @@ import '../../data/database.dart';
 import '../../data/repositories/body_weight_log_repository.dart';
 import '../../data/repositories/exercise_set_repository.dart';
 import '../../data/repositories/food_entry_repository.dart';
+import '../../data/repositories/routine_repository.dart';
 import '../../data/repositories/workout_session_repository.dart';
 
 /// Current export format version. Bump when the JSON shape changes.
@@ -60,14 +61,21 @@ Future<String> buildExportJson({
   final weightRepo = BodyWeightLogRepository(db);
   final sessionRepo = WorkoutSessionRepository(db);
   final setRepo = ExerciseSetRepository(db);
+  final routineRepo = RoutineRepository(db);
 
-  // Fan out all four reads in parallel. None of them depend on each
-  // other so there's no ordering concern here.
+  // Fan out all reads in parallel. None of them depend on each other
+  // so there's no ordering concern here. Routines + routine_exercises
+  // (schema v4, issue #52) appended to the list — the `format_version`
+  // stays at '1' because the new keys are additive snake_case fields
+  // that old importers safely ignore (same reasoning as the S5.1
+  // `source` column addition on the four original entities).
   final results = await Future.wait<List<Object>>([
     foodRepo.listAll(),
     weightRepo.listAll(),
     sessionRepo.listAll(),
     setRepo.listAll(),
+    routineRepo.listAll(),
+    routineRepo.listAllExercises(),
   ]);
 
   // Each repo's `listAll` orders by timestamp descending (or similar);
@@ -82,6 +90,10 @@ Future<String> buildExportJson({
     ..sort((a, b) => a.id.compareTo(b.id));
   final exerciseSets = [...results[3] as List<ExerciseSet>]
     ..sort((a, b) => a.id.compareTo(b.id));
+  final routines = [...results[4] as List<Routine>]
+    ..sort((a, b) => a.id.compareTo(b.id));
+  final routineExercises = [...results[5] as List<RoutineExercise>]
+    ..sort((a, b) => a.id.compareTo(b.id));
 
   final payload = <String, Object?>{
     'meta': <String, Object?>{
@@ -94,6 +106,8 @@ Future<String> buildExportJson({
         'body_weight_logs': bodyWeightLogs.length,
         'workout_sessions': workoutSessions.length,
         'exercise_sets': exerciseSets.length,
+        'routines': routines.length,
+        'routine_exercises': routineExercises.length,
       },
       'note':
           'All arrays below are user-entered rows exactly as stored. '
@@ -105,28 +119,30 @@ Future<String> buildExportJson({
     'body_weight_logs': bodyWeightLogs.map(_bodyWeightLogToJson).toList(),
     'workout_sessions': workoutSessions.map(_workoutSessionToJson).toList(),
     'exercise_sets': exerciseSets.map(_exerciseSetToJson).toList(),
+    'routines': routines.map(_routineToJson).toList(),
+    'routine_exercises': routineExercises.map(_routineExerciseToJson).toList(),
   };
 
   return jsonEncode(payload);
 }
 
 Map<String, Object?> _foodEntryToJson(FoodEntry e) => <String, Object?>{
-      'id': e.id,
-      'timestamp': e.timestamp.toUtc().toIso8601String(),
-      'name': e.name,
-      'kcal': e.kcal,
-      'protein_g': e.proteinG,
-      'meal_type': e.mealType.name,
-      'entry_type': e.entryType.name,
-      'note': e.note,
-    };
+  'id': e.id,
+  'timestamp': e.timestamp.toUtc().toIso8601String(),
+  'name': e.name,
+  'kcal': e.kcal,
+  'protein_g': e.proteinG,
+  'meal_type': e.mealType.name,
+  'entry_type': e.entryType.name,
+  'note': e.note,
+};
 
 Map<String, Object?> _bodyWeightLogToJson(BodyWeightLog e) => <String, Object?>{
-      'id': e.id,
-      'timestamp': e.timestamp.toUtc().toIso8601String(),
-      'value': e.value,
-      'unit': e.unit.name,
-    };
+  'id': e.id,
+  'timestamp': e.timestamp.toUtc().toIso8601String(),
+  'value': e.value,
+  'unit': e.unit.name,
+};
 
 Map<String, Object?> _workoutSessionToJson(WorkoutSession s) =>
     <String, Object?>{
@@ -139,12 +155,35 @@ Map<String, Object?> _workoutSessionToJson(WorkoutSession s) =>
     };
 
 Map<String, Object?> _exerciseSetToJson(ExerciseSet s) => <String, Object?>{
-      'id': s.id,
-      'session_id': s.sessionId,
-      'exercise_name': s.exerciseName,
-      'reps': s.reps,
-      'weight': s.weight,
-      'weight_unit': s.weightUnit.name,
-      'status': s.status.name,
-      'order_index': s.orderIndex,
+  'id': s.id,
+  'session_id': s.sessionId,
+  'exercise_name': s.exerciseName,
+  'reps': s.reps,
+  'weight': s.weight,
+  'weight_unit': s.weightUnit.name,
+  'status': s.status.name,
+  'order_index': s.orderIndex,
+};
+
+Map<String, Object?> _routineToJson(Routine r) => <String, Object?>{
+  'id': r.id,
+  'name': r.name,
+  'notes': r.notes,
+  'created_at': r.createdAt.toUtc().toIso8601String(),
+  'source': r.source.name,
+};
+
+Map<String, Object?> _routineExerciseToJson(RoutineExercise e) =>
+    <String, Object?>{
+      'id': e.id,
+      'routine_id': e.routineId,
+      'exercise_id': e.exerciseId,
+      'order_index': e.orderIndex,
+      'target_sets': e.targetSets,
+      'target_reps': e.targetReps,
+      'target_weight': e.targetWeight,
+      // Nullable enum — `null` stays `null` through jsonEncode; the key
+      // is always present so parsers can rely on `row['target_weight_unit']`
+      // rather than a `containsKey` check.
+      'target_weight_unit': e.targetWeightUnit?.name,
     };

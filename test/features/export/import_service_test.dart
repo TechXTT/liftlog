@@ -22,8 +22,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
+import 'package:liftlog_app/data/repositories/exercise_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_set_repository.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
+import 'package:liftlog_app/data/repositories/routine_repository.dart';
 import 'package:liftlog_app/data/repositories/workout_session_repository.dart';
 import 'package:liftlog_app/features/export/export_service.dart';
 import 'package:liftlog_app/features/export/import_service.dart';
@@ -34,6 +36,8 @@ void main() {
   late BodyWeightLogRepository weights;
   late WorkoutSessionRepository sessions;
   late ExerciseSetRepository sets;
+  late ExerciseRepository exerciseCatalog;
+  late RoutineRepository routines;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -41,6 +45,8 @@ void main() {
     weights = BodyWeightLogRepository(db);
     sessions = WorkoutSessionRepository(db);
     sets = ExerciseSetRepository(db);
+    exerciseCatalog = ExerciseRepository(db);
+    routines = RoutineRepository(db);
   });
 
   tearDown(() async => db.close());
@@ -119,6 +125,40 @@ void main() {
         orderIndex: 1,
       ),
     );
+
+    // Routines + lineup entries — round-trip fidelity for schema v4.
+    final bench = await exerciseCatalog.addIfMissing(
+      'Bench Press',
+      source: Source.userEntered,
+    );
+    final squat = await exerciseCatalog.addIfMissing(
+      'Squat',
+      source: Source.userEntered,
+    );
+    final routineId = await routines.add(
+      RoutinesCompanion.insert(
+        name: 'Push A',
+        createdAt: DateTime.utc(2026, 4, 20, 12),
+      ),
+    );
+    await routines.addExercise(
+      RoutineExercisesCompanion.insert(
+        routineId: routineId,
+        exerciseId: bench.id,
+        orderIndex: 0,
+        targetSets: const Value(4),
+        targetReps: const Value(8),
+        targetWeight: const Value(80.0),
+        targetWeightUnit: const Value(WeightUnit.kg),
+      ),
+    );
+    await routines.addExercise(
+      RoutineExercisesCompanion.insert(
+        routineId: routineId,
+        exerciseId: squat.id,
+        orderIndex: 1,
+      ),
+    );
   }
 
   test('round-trip: export + importReplacing preserves every field', () async {
@@ -136,6 +176,10 @@ void main() {
       ..sort((a, b) => a.id.compareTo(b.id));
     final preSets = [...await sets.listAll()]
       ..sort((a, b) => a.id.compareTo(b.id));
+    final preRoutines = [...await routines.listAll()]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    final preRoutineExercises = [...await routines.listAllExercises()]
+      ..sort((a, b) => a.id.compareTo(b.id));
 
     // Wipe + re-import via the replacing path.
     final result = await importJsonReplacing(
@@ -147,7 +191,12 @@ void main() {
     expect(result, isA<ImportSuccess>());
     expect(
       (result as ImportSuccess).rowsImported,
-      preFoods.length + preWeights.length + preSessions.length + preSets.length,
+      preFoods.length +
+          preWeights.length +
+          preSessions.length +
+          preSets.length +
+          preRoutines.length +
+          preRoutineExercises.length,
     );
 
     final postFoods = [...await foods.listAll()]
@@ -205,6 +254,35 @@ void main() {
       expect(b.weightUnit, a.weightUnit);
       expect(b.status, a.status);
       expect(b.orderIndex, a.orderIndex);
+    }
+
+    final postRoutines = [...await routines.listAll()]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    expect(postRoutines.length, preRoutines.length);
+    for (var i = 0; i < preRoutines.length; i++) {
+      final a = preRoutines[i];
+      final b = postRoutines[i];
+      expect(b.id, a.id);
+      expect(b.name, a.name);
+      expect(b.notes, a.notes);
+      expect(b.createdAt.toUtc(), a.createdAt.toUtc());
+      expect(b.source, a.source);
+    }
+
+    final postRoutineExercises = [...await routines.listAllExercises()]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    expect(postRoutineExercises.length, preRoutineExercises.length);
+    for (var i = 0; i < preRoutineExercises.length; i++) {
+      final a = preRoutineExercises[i];
+      final b = postRoutineExercises[i];
+      expect(b.id, a.id);
+      expect(b.routineId, a.routineId);
+      expect(b.exerciseId, a.exerciseId);
+      expect(b.orderIndex, a.orderIndex);
+      expect(b.targetSets, a.targetSets);
+      expect(b.targetReps, a.targetReps);
+      expect(b.targetWeight, a.targetWeight);
+      expect(b.targetWeightUnit, a.targetWeightUnit);
     }
   });
 
@@ -273,7 +351,9 @@ void main() {
         preFoodCount +
         (await weights.listAll()).length +
         (await sessions.listAll()).length +
-        (await sets.listAll()).length;
+        (await sets.listAll()).length +
+        (await routines.listAll()).length +
+        (await routines.listAllExercises()).length;
 
     // Build a valid payload from the current DB; importing it into the
     // same (non-empty) DB under safe mode must refuse.

@@ -18,8 +18,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
+import 'package:liftlog_app/data/repositories/exercise_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_set_repository.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
+import 'package:liftlog_app/data/repositories/routine_repository.dart';
 import 'package:liftlog_app/data/repositories/workout_session_repository.dart';
 import 'package:liftlog_app/features/export/export_service.dart';
 
@@ -29,6 +31,8 @@ void main() {
   late BodyWeightLogRepository weights;
   late WorkoutSessionRepository sessions;
   late ExerciseSetRepository sets;
+  late ExerciseRepository exerciseCatalog;
+  late RoutineRepository routines;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -36,6 +40,8 @@ void main() {
     weights = BodyWeightLogRepository(db);
     sessions = WorkoutSessionRepository(db);
     sets = ExerciseSetRepository(db);
+    exerciseCatalog = ExerciseRepository(db);
+    routines = RoutineRepository(db);
   });
 
   tearDown(() async => db.close());
@@ -50,64 +56,114 @@ void main() {
   Future<void> seedAll() async {
     // Food entries — insertion order deliberately scrambles timestamp
     // vs id so the sort-by-id assertion isn't trivially satisfied.
-    await foods.add(FoodEntriesCompanion.insert(
-      timestamp: DateTime.utc(2026, 4, 23, 8, 30),
-      name: const Value('Eggs'),
-      kcal: 140,
-      proteinG: 12.0,
-      mealType: MealType.breakfast,
-      entryType: FoodEntryType.manual,
-    ));
-    await foods.add(FoodEntriesCompanion.insert(
-      timestamp: DateTime.utc(2026, 4, 22, 13, 15),
-      name: const Value('Eyeball guac'),
-      kcal: 300,
-      proteinG: 3.5,
-      mealType: MealType.snack,
-      entryType: FoodEntryType.estimate,
-      note: const Value('rough'),
-    ));
+    await foods.add(
+      FoodEntriesCompanion.insert(
+        timestamp: DateTime.utc(2026, 4, 23, 8, 30),
+        name: const Value('Eggs'),
+        kcal: 140,
+        proteinG: 12.0,
+        mealType: MealType.breakfast,
+        entryType: FoodEntryType.manual,
+      ),
+    );
+    await foods.add(
+      FoodEntriesCompanion.insert(
+        timestamp: DateTime.utc(2026, 4, 22, 13, 15),
+        name: const Value('Eyeball guac'),
+        kcal: 300,
+        proteinG: 3.5,
+        mealType: MealType.snack,
+        entryType: FoodEntryType.estimate,
+        note: const Value('rough'),
+      ),
+    );
 
     // Body weight logs — two units to catch remap bugs.
-    await weights.add(BodyWeightLogsCompanion.insert(
-      timestamp: DateTime.utc(2026, 4, 23, 7),
-      value: 80.5,
-      unit: WeightUnit.kg,
-    ));
-    await weights.add(BodyWeightLogsCompanion.insert(
-      timestamp: DateTime.utc(2026, 4, 22, 7),
-      value: 177.5,
-      unit: WeightUnit.lb,
-    ));
+    await weights.add(
+      BodyWeightLogsCompanion.insert(
+        timestamp: DateTime.utc(2026, 4, 23, 7),
+        value: 80.5,
+        unit: WeightUnit.kg,
+      ),
+    );
+    await weights.add(
+      BodyWeightLogsCompanion.insert(
+        timestamp: DateTime.utc(2026, 4, 22, 7),
+        value: 177.5,
+        unit: WeightUnit.lb,
+      ),
+    );
 
     // Workout sessions — one completed, one in progress (null endedAt).
-    final completedId = await sessions.add(WorkoutSessionsCompanion.insert(
-      startedAt: DateTime.utc(2026, 4, 21, 18),
-      endedAt: Value(DateTime.utc(2026, 4, 21, 19, 5)),
-    ));
-    await sessions.add(WorkoutSessionsCompanion.insert(
-      startedAt: DateTime.utc(2026, 4, 23, 18),
-    ));
+    final completedId = await sessions.add(
+      WorkoutSessionsCompanion.insert(
+        startedAt: DateTime.utc(2026, 4, 21, 18),
+        endedAt: Value(DateTime.utc(2026, 4, 21, 19, 5)),
+      ),
+    );
+    await sessions.add(
+      WorkoutSessionsCompanion.insert(startedAt: DateTime.utc(2026, 4, 23, 18)),
+    );
 
     // Sets on the completed session. Include a skipped one.
-    await sets.add(ExerciseSetsCompanion.insert(
-      sessionId: completedId,
-      exerciseName: 'Bench Press',
-      reps: 8,
-      weight: 80.0,
-      weightUnit: WeightUnit.kg,
-      status: WorkoutSetStatus.completed,
-      orderIndex: 0,
-    ));
-    await sets.add(ExerciseSetsCompanion.insert(
-      sessionId: completedId,
-      exerciseName: 'Bench Press',
-      reps: 8,
-      weight: 80.0,
-      weightUnit: WeightUnit.kg,
-      status: WorkoutSetStatus.skipped,
-      orderIndex: 1,
-    ));
+    await sets.add(
+      ExerciseSetsCompanion.insert(
+        sessionId: completedId,
+        exerciseName: 'Bench Press',
+        reps: 8,
+        weight: 80.0,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.completed,
+        orderIndex: 0,
+      ),
+    );
+    await sets.add(
+      ExerciseSetsCompanion.insert(
+        sessionId: completedId,
+        exerciseName: 'Bench Press',
+        reps: 8,
+        weight: 80.0,
+        weightUnit: WeightUnit.kg,
+        status: WorkoutSetStatus.skipped,
+        orderIndex: 1,
+      ),
+    );
+
+    // Routines + line items (schema v4, issue #52). Seed one routine
+    // with two lineup entries — one fully targeted, one with every
+    // target field null — so the export proves both paths.
+    final bench = await exerciseCatalog.addIfMissing(
+      'Bench Press',
+      source: Source.userEntered,
+    );
+    final squat = await exerciseCatalog.addIfMissing(
+      'Squat',
+      source: Source.userEntered,
+    );
+    final routineId = await routines.add(
+      RoutinesCompanion.insert(
+        name: 'Push A',
+        createdAt: DateTime.utc(2026, 4, 20, 12),
+      ),
+    );
+    await routines.addExercise(
+      RoutineExercisesCompanion.insert(
+        routineId: routineId,
+        exerciseId: bench.id,
+        orderIndex: 0,
+        targetSets: const Value(4),
+        targetReps: const Value(8),
+        targetWeight: const Value(80.0),
+        targetWeightUnit: const Value(WeightUnit.kg),
+      ),
+    );
+    await routines.addExercise(
+      RoutineExercisesCompanion.insert(
+        routineId: routineId,
+        exerciseId: squat.id,
+        orderIndex: 1,
+      ),
+    );
   }
 
   test('top-level keys are exactly meta + four entity arrays', () async {
@@ -127,6 +183,8 @@ void main() {
         'body_weight_logs',
         'workout_sessions',
         'exercise_sets',
+        'routines',
+        'routine_exercises',
       },
       reason: 'exact set of top-level keys is part of the format contract',
     );
@@ -153,6 +211,8 @@ void main() {
     expect(counts['body_weight_logs'], 2);
     expect(counts['workout_sessions'], 2);
     expect(counts['exercise_sets'], 2);
+    expect(counts['routines'], 1);
+    expect(counts['routine_exercises'], 2);
   });
 
   test('food entry every-field round-trip with enum + null note', () async {
@@ -215,8 +275,7 @@ void main() {
     expect(lbLog['unit'], 'lb');
   });
 
-  test('workout session serializes ended_at as null for in-progress',
-      () async {
+  test('workout session serializes ended_at as null for in-progress', () async {
     await seedAll();
 
     final json = await buildExportJson(
@@ -279,8 +338,11 @@ void main() {
     final now = DateTime.utc(2026, 4, 24, 9, 14);
     final a = await buildExportJson(db: db, now: now);
     final b = await buildExportJson(db: db, now: now);
-    expect(a, b,
-        reason: 'determinism: same DB + same `now` must emit identical bytes');
+    expect(
+      a,
+      b,
+      reason: 'determinism: same DB + same `now` must emit identical bytes',
+    );
   });
 
   test('each entity array is sorted by id ascending', () async {
@@ -292,16 +354,16 @@ void main() {
     );
     final decoded = jsonDecode(json) as Map<String, dynamic>;
 
-    List<int> ids(String key) => (decoded[key] as List)
-        .cast<Map>()
-        .map((m) => m['id'] as int)
-        .toList();
+    List<int> ids(String key) =>
+        (decoded[key] as List).cast<Map>().map((m) => m['id'] as int).toList();
 
     for (final key in [
       'food_entries',
       'body_weight_logs',
       'workout_sessions',
       'exercise_sets',
+      'routines',
+      'routine_exercises',
     ]) {
       final got = ids(key);
       final expected = [...got]..sort();
@@ -327,39 +389,110 @@ void main() {
       'daily_summary',
       'daily_summaries',
     ]) {
-      expect(json.contains(forbidden), isFalse,
-          reason: 'derived key "$forbidden" must not appear in export');
+      expect(
+        json.contains(forbidden),
+        isFalse,
+        reason: 'derived key "$forbidden" must not appear in export',
+      );
     }
   });
 
-  test('empty database still produces a valid shape with zero counts',
-      () async {
-    // No seed. Exports against an empty DB should still emit the full
-    // shape with empty arrays and zeroed counts — a freshly-installed
-    // app tapping "export" must not crash.
-    final json = await buildExportJson(
-      db: db,
-      now: DateTime.utc(2026, 4, 24, 9, 14),
-    );
-    final decoded = jsonDecode(json) as Map<String, dynamic>;
+  test(
+    'empty database still produces a valid shape with zero counts',
+    () async {
+      // No seed. Exports against an empty DB should still emit the full
+      // shape with empty arrays and zeroed counts — a freshly-installed
+      // app tapping "export" must not crash.
+      final json = await buildExportJson(
+        db: db,
+        now: DateTime.utc(2026, 4, 24, 9, 14),
+      );
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
 
-    expect(decoded.keys.toSet(), {
-      'meta',
-      'food_entries',
-      'body_weight_logs',
-      'workout_sessions',
-      'exercise_sets',
-    });
-    expect((decoded['food_entries'] as List), isEmpty);
-    expect((decoded['body_weight_logs'] as List), isEmpty);
-    expect((decoded['workout_sessions'] as List), isEmpty);
-    expect((decoded['exercise_sets'] as List), isEmpty);
+      expect(decoded.keys.toSet(), {
+        'meta',
+        'food_entries',
+        'body_weight_logs',
+        'workout_sessions',
+        'exercise_sets',
+        'routines',
+        'routine_exercises',
+      });
+      expect((decoded['food_entries'] as List), isEmpty);
+      expect((decoded['body_weight_logs'] as List), isEmpty);
+      expect((decoded['workout_sessions'] as List), isEmpty);
+      expect((decoded['exercise_sets'] as List), isEmpty);
+      expect((decoded['routines'] as List), isEmpty);
+      expect((decoded['routine_exercises'] as List), isEmpty);
 
-    final counts =
-        (decoded['meta'] as Map<String, dynamic>)['counts'] as Map;
-    expect(counts['food_entries'], 0);
-    expect(counts['body_weight_logs'], 0);
-    expect(counts['workout_sessions'], 0);
-    expect(counts['exercise_sets'], 0);
-  });
+      final counts = (decoded['meta'] as Map<String, dynamic>)['counts'] as Map;
+      expect(counts['food_entries'], 0);
+      expect(counts['body_weight_logs'], 0);
+      expect(counts['workout_sessions'], 0);
+      expect(counts['exercise_sets'], 0);
+      expect(counts['routines'], 0);
+      expect(counts['routine_exercises'], 0);
+    },
+  );
+
+  test(
+    'routines every-field round-trip with source + nullable notes',
+    () async {
+      await seedAll();
+
+      final json = await buildExportJson(
+        db: db,
+        now: DateTime.utc(2026, 4, 24, 9, 14),
+      );
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      final list = (decoded['routines'] as List).cast<Map>();
+      expect(list, hasLength(1));
+
+      final r = list.single;
+      expect(r['id'], 1);
+      expect(r['name'], 'Push A');
+      expect(r['notes'], isNull);
+      expect(r['created_at'], '2026-04-20T12:00:00.000Z');
+      // Source.userEntered is the default applied by the schema.
+      expect(r['source'], 'userEntered');
+    },
+  );
+
+  test(
+    'routine_exercises every-field round-trip including all-null targets',
+    () async {
+      await seedAll();
+
+      final json = await buildExportJson(
+        db: db,
+        now: DateTime.utc(2026, 4, 24, 9, 14),
+      );
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      final list = (decoded['routine_exercises'] as List).cast<Map>();
+      expect(list, hasLength(2));
+
+      // First row — fully-targeted lineup entry.
+      final first = list[0];
+      expect(first['id'], 1);
+      expect(first['routine_id'], 1);
+      expect(first['exercise_id'], isA<int>());
+      expect(first['order_index'], 0);
+      expect(first['target_sets'], 4);
+      expect(first['target_reps'], 8);
+      expect(first['target_weight'], 80.0);
+      expect(first['target_weight_unit'], 'kg');
+
+      // Second row — every target column null.
+      final second = list[1];
+      expect(second['id'], 2);
+      expect(second['routine_id'], 1);
+      expect(second['order_index'], 1);
+      expect(second['target_sets'], isNull);
+      expect(second['target_reps'], isNull);
+      expect(second['target_weight'], isNull);
+      // Null enum serializes as JSON null and the key is always present.
+      expect(second.containsKey('target_weight_unit'), isTrue);
+      expect(second['target_weight_unit'], isNull);
+    },
+  );
 }
