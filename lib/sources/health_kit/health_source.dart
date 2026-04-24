@@ -1,4 +1,4 @@
-// Façade for the HealthKit integration source (issue #43).
+// Façade for the HealthKit integration source (issues #43, #50).
 //
 // This file is the public boundary of `lib/sources/health_kit/`. Feature
 // code is only ever allowed to import from this file — the arch guardrail
@@ -14,7 +14,11 @@
 //   `HealthDataUnit.POUND` to `WeightUnit.kg` / `WeightUnit.lb`; samples
 //   in other mass units are dropped rather than auto-converted (see the
 //   trust-rule in CLAUDE.md about unit mixing).
-// * `Source` is deliberately NOT a field on `HKBodyWeightSample`. Feature
+// * HRV is surfaced in milliseconds (HealthKit's native unit for SDNN).
+//   Resting HR is in BPM. Sleep samples carry a stage (`SleepStage`) plus
+//   a start/end interval — HealthKit sleep is interval-shaped, not
+//   instantaneous.
+// * `Source` is deliberately NOT a field on the value classes. Feature
 //   code must not construct `Source.` values directly (arch rule). The
 //   provenance is implicit: anything coming out of this façade is
 //   HealthKit-sourced. UI derives the badge from the sample's *type*
@@ -70,21 +74,162 @@ class HKBodyWeightSample {
       'value: $value, unit: $unit)';
 }
 
-/// Pure-Dart façade for a HealthKit body-weight source.
+/// A single Heart-Rate-Variability sample, expressed as SDNN in
+/// milliseconds — HealthKit's native unit for HRV
+/// (`HKQuantityTypeIdentifierHeartRateVariabilitySDNN`).
+///
+/// Instantaneous: samples carry a start/end pair in HealthKit but the
+/// two are equal for HRV, so we surface a single `timestamp`.
+class HKHRVSample {
+  const HKHRVSample({
+    required this.sourceId,
+    required this.timestamp,
+    required this.sdnnMs,
+  });
+
+  /// Stable identifier from the underlying HKSample's source.
+  final String sourceId;
+
+  /// Wall-clock time the sample was recorded.
+  final DateTime timestamp;
+
+  /// SDNN in milliseconds. No silent conversion — HealthKit always reports
+  /// this in ms; we pass it through. Callers compute averages / trends at
+  /// the consumer layer, not here.
+  final double sdnnMs;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HKHRVSample &&
+      other.sourceId == sourceId &&
+      other.timestamp == timestamp &&
+      other.sdnnMs == sdnnMs;
+
+  @override
+  int get hashCode => Object.hash(sourceId, timestamp, sdnnMs);
+
+  @override
+  String toString() =>
+      'HKHRVSample(sourceId: $sourceId, timestamp: $timestamp, '
+      'sdnnMs: $sdnnMs)';
+}
+
+/// A single resting-heart-rate sample, in beats-per-minute.
+///
+/// Instantaneous: HealthKit resting HR samples are point-in-time (iOS
+/// computes a per-day value from overnight HR readings).
+class HKRestingHRSample {
+  const HKRestingHRSample({
+    required this.sourceId,
+    required this.timestamp,
+    required this.bpm,
+  });
+
+  /// Stable identifier from the underlying HKSample's source.
+  final String sourceId;
+
+  /// Wall-clock time the sample was recorded.
+  final DateTime timestamp;
+
+  /// Resting HR in BPM.
+  final double bpm;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HKRestingHRSample &&
+      other.sourceId == sourceId &&
+      other.timestamp == timestamp &&
+      other.bpm == bpm;
+
+  @override
+  int get hashCode => Object.hash(sourceId, timestamp, bpm);
+
+  @override
+  String toString() =>
+      'HKRestingHRSample(sourceId: $sourceId, timestamp: $timestamp, '
+      'bpm: $bpm)';
+}
+
+/// Sleep stages surfaced by the façade.
+///
+/// Maps HealthKit's `HKCategoryValueSleepAnalysis` values into a compact,
+/// exhaustively-switch-able enum. Any renderer must enumerate all six
+/// values — canonical-enum rule (see CLAUDE.md).
+///
+/// Mapping (see `health_source_impl.dart::_mapHealthSleepType`):
+///   inBed              — user is in bed (sleeping or awake-in-bed)
+///   asleepUnspecified  — generic asleep (pre-iOS 16 category value)
+///   asleepCore         — iOS 16+ "core" / light sleep stage
+///   asleepDeep         — iOS 16+ deep sleep stage
+///   asleepREM          — iOS 16+ REM sleep stage
+///   awake              — explicitly awake (out-of-bed or awake-in-bed)
+enum SleepStage {
+  inBed,
+  asleepUnspecified,
+  asleepCore,
+  asleepDeep,
+  asleepREM,
+  awake,
+}
+
+/// A single sleep-stage sample. Sleep samples are interval-shaped in
+/// HealthKit (a stretch of REM, a stretch of deep, etc.), so this value
+/// class carries a start/end pair rather than a single timestamp.
+class HKSleepStageSample {
+  const HKSleepStageSample({
+    required this.sourceId,
+    required this.start,
+    required this.end,
+    required this.stage,
+  });
+
+  /// Stable identifier from the underlying HKSample's source.
+  final String sourceId;
+
+  /// Inclusive start of the sleep-stage interval.
+  final DateTime start;
+
+  /// Exclusive end of the sleep-stage interval.
+  final DateTime end;
+
+  /// Which stage this interval represents. See [SleepStage].
+  final SleepStage stage;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HKSleepStageSample &&
+      other.sourceId == sourceId &&
+      other.start == start &&
+      other.end == end &&
+      other.stage == stage;
+
+  @override
+  int get hashCode => Object.hash(sourceId, start, end, stage);
+
+  @override
+  String toString() =>
+      'HKSleepStageSample(sourceId: $sourceId, start: $start, end: $end, '
+      'stage: $stage)';
+}
+
+/// Pure-Dart façade for a HealthKit source.
 ///
 /// The only implementation today (`HealthSourceImpl`) wraps
 /// `package:health`. Tests inject `HealthSourceFake`.
 ///
 /// Implementations must:
 /// * Surface errors on the returned Future / Stream — no silent fallback.
-/// * Return an empty list (not an error) when not authorized, so the UI
-///   can fall back to user-entered rows without a nag toast.
+/// * Return an empty list (not an error) when a specific data type is
+///   not authorized, so the UI can fall back gracefully without a nag
+///   toast. Per-type denial is per-method: if WEIGHT is authorized but
+///   HRV isn't, `listBodyWeight` returns data and `listHRV` returns `[]`.
 /// * Never mutate Drift state from inside this façade — HK samples are
 ///   read-only passthrough this sprint.
 abstract class HealthSource {
-  /// Requests read access to body-weight samples. Returns `true` if the
-  /// permission dialog completed without error (iOS never discloses the
-  /// user's actual choice for READ access by design).
+  /// Requests read access to body-weight, HRV, resting-HR, and sleep
+  /// samples in one permission dialog. Returns `true` if the dialog
+  /// completed without error (iOS never discloses the user's actual
+  /// choice for READ access by design).
   Future<bool> requestPermissions();
 
   /// Returns `true` if the plugin believes read access is authorized.
@@ -109,6 +254,50 @@ abstract class HealthSource {
   /// ~60s is the simplest working shape — body-weight samples are low-
   /// velocity data and the UI refreshes on pull-to-refresh anyway.
   Stream<List<HKBodyWeightSample>> watchBodyWeight({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// One-shot fetch of HRV (SDNN) samples in `[from, to)`. Ordered
+  /// newest-first. Returns `[]` when HRV is not authorized — partial
+  /// HK denial does not throw.
+  Future<List<HKHRVSample>> listHRV({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// Streams HRV samples in `[from, to)`. Same 60s poll semantics as
+  /// [watchBodyWeight].
+  Stream<List<HKHRVSample>> watchHRV({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// One-shot fetch of resting-HR samples in `[from, to)`. Ordered
+  /// newest-first. Returns `[]` when not authorized.
+  Future<List<HKRestingHRSample>> listRestingHR({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// Streams resting-HR samples in `[from, to)`. Same 60s poll semantics
+  /// as [watchBodyWeight].
+  Stream<List<HKRestingHRSample>> watchRestingHR({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// One-shot fetch of sleep-stage samples in `[from, to)`. A night's
+  /// sleep is returned as multiple intervals (one per stage transition).
+  /// Ordered newest-first by `start`. Returns `[]` when not authorized.
+  Future<List<HKSleepStageSample>> listSleep({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// Streams sleep-stage samples in `[from, to)`. Same 60s poll semantics
+  /// as [watchBodyWeight].
+  Stream<List<HKSleepStageSample>> watchSleep({
     required DateTime from,
     required DateTime to,
   });
