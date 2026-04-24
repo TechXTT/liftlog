@@ -35,6 +35,7 @@ import '../../data/enums.dart';
 import '../../data/repositories/body_weight_log_repository.dart';
 import '../../data/repositories/exercise_set_repository.dart';
 import '../../data/repositories/food_entry_repository.dart';
+import '../../data/repositories/routine_repository.dart';
 import '../../data/repositories/workout_session_repository.dart';
 import 'export_service.dart';
 
@@ -176,18 +177,24 @@ class _ParsedPayload {
     required this.bodyWeightLogs,
     required this.workoutSessions,
     required this.exerciseSets,
+    required this.routines,
+    required this.routineExercises,
   });
 
   final List<FoodEntriesCompanion> foodEntries;
   final List<BodyWeightLogsCompanion> bodyWeightLogs;
   final List<WorkoutSessionsCompanion> workoutSessions;
   final List<ExerciseSetsCompanion> exerciseSets;
+  final List<RoutinesCompanion> routines;
+  final List<RoutineExercisesCompanion> routineExercises;
 
   int get totalRows =>
       foodEntries.length +
       bodyWeightLogs.length +
       workoutSessions.length +
-      exerciseSets.length;
+      exerciseSets.length +
+      routines.length +
+      routineExercises.length;
 }
 
 _ParseOutcome _parseAndValidate(String jsonPayload) {
@@ -226,16 +233,26 @@ _ParseOutcome _parseAndValidate(String jsonPayload) {
 
   // Each entity array is optional (empty DB exports as empty list); but
   // if present it must be a List<Map>. We also tolerate the key being
-  // absent — treat as empty.
+  // absent — treat as empty. `routines` / `routine_exercises` were
+  // added in schema v4 (issue #52) — older export files won't have the
+  // keys, so the tolerant "missing → empty" behavior is what makes the
+  // `format_version` bump unnecessary (pre-v4 payloads remain valid).
   final List<FoodEntriesCompanion> foodEntries;
   final List<BodyWeightLogsCompanion> bodyWeightLogs;
   final List<WorkoutSessionsCompanion> workoutSessions;
   final List<ExerciseSetsCompanion> exerciseSets;
+  final List<RoutinesCompanion> routines;
+  final List<RoutineExercisesCompanion> routineExercises;
   try {
     foodEntries = _parseList(raw['food_entries'], _parseFoodEntry);
     bodyWeightLogs = _parseList(raw['body_weight_logs'], _parseBodyWeightLog);
     workoutSessions = _parseList(raw['workout_sessions'], _parseWorkoutSession);
     exerciseSets = _parseList(raw['exercise_sets'], _parseExerciseSet);
+    routines = _parseList(raw['routines'], _parseRoutine);
+    routineExercises = _parseList(
+      raw['routine_exercises'],
+      _parseRoutineExercise,
+    );
   } on _MalformedRow catch (e) {
     return _ParseFailure(ImportMalformed(reason: e.reason));
   }
@@ -246,6 +263,8 @@ _ParseOutcome _parseAndValidate(String jsonPayload) {
       bodyWeightLogs: bodyWeightLogs,
       workoutSessions: workoutSessions,
       exerciseSets: exerciseSets,
+      routines: routines,
+      routineExercises: routineExercises,
     ),
   );
 }
@@ -337,6 +356,63 @@ WorkoutSessionsCompanion _parseWorkoutSession(Map<String, dynamic> row) {
   );
 }
 
+RoutinesCompanion _parseRoutine(Map<String, dynamic> row) {
+  final id = _int(row, 'id', 'routines');
+  final name = _string(row, 'name', 'routines');
+  final notes = _nullableString(row, 'notes', 'routines');
+  final createdAt = _dateTime(row, 'created_at', 'routines');
+  final sourceRaw = _string(row, 'source', 'routines');
+  // `parseSourceName` lives in `lib/data/enums.dart` so the arch
+  // guardrail (features never reference `Source.` directly) holds.
+  // Translates the thrown `ArgumentError` into the malformed-row
+  // contract this file already uses for every other enum mismatch.
+  final Source source;
+  try {
+    source = parseSourceName(sourceRaw);
+  } on ArgumentError {
+    throw _MalformedRow('routines.source: unknown enum value "$sourceRaw"');
+  }
+
+  return RoutinesCompanion.insert(
+    id: Value(id),
+    name: name,
+    notes: Value(notes),
+    createdAt: createdAt,
+    source: Value(source),
+  );
+}
+
+RoutineExercisesCompanion _parseRoutineExercise(Map<String, dynamic> row) {
+  final id = _int(row, 'id', 'routine_exercises');
+  final routineId = _int(row, 'routine_id', 'routine_exercises');
+  final exerciseId = _int(row, 'exercise_id', 'routine_exercises');
+  final orderIndex = _int(row, 'order_index', 'routine_exercises');
+  final targetSets = _nullableInt(row, 'target_sets', 'routine_exercises');
+  final targetReps = _nullableInt(row, 'target_reps', 'routine_exercises');
+  final targetWeight = _nullableDouble(
+    row,
+    'target_weight',
+    'routine_exercises',
+  );
+  final targetWeightUnit = _nullableEnum<WeightUnit>(
+    row,
+    'target_weight_unit',
+    'routine_exercises',
+    WeightUnit.values,
+  );
+
+  return RoutineExercisesCompanion.insert(
+    id: Value(id),
+    routineId: routineId,
+    exerciseId: exerciseId,
+    orderIndex: orderIndex,
+    targetSets: Value(targetSets),
+    targetReps: Value(targetReps),
+    targetWeight: Value(targetWeight),
+    targetWeightUnit: Value(targetWeightUnit),
+  );
+}
+
 ExerciseSetsCompanion _parseExerciseSet(Map<String, dynamic> row) {
   final id = _int(row, 'id', 'exercise_sets');
   final sessionId = _int(row, 'session_id', 'exercise_sets');
@@ -388,6 +464,25 @@ String _string(Map<String, dynamic> row, String key, String entity) {
   final v = row[key];
   if (v is String) return v;
   throw _MalformedRow('$entity.$key: expected string, got ${v.runtimeType}');
+}
+
+int? _nullableInt(Map<String, dynamic> row, String key, String entity) {
+  final v = row[key];
+  if (v == null) return null;
+  if (v is int) return v;
+  throw _MalformedRow(
+    '$entity.$key: expected int or null, got ${v.runtimeType}',
+  );
+}
+
+double? _nullableDouble(Map<String, dynamic> row, String key, String entity) {
+  final v = row[key];
+  if (v == null) return null;
+  if (v is double) return v;
+  if (v is int) return v.toDouble();
+  throw _MalformedRow(
+    '$entity.$key: expected number or null, got ${v.runtimeType}',
+  );
 }
 
 String? _nullableString(Map<String, dynamic> row, String key, String entity) {
@@ -451,16 +546,34 @@ T _enum<T extends Enum>(
   }
 }
 
+/// Nullable companion of [_enum]. Accepts `null` (or a missing key) and
+/// returns `null`; otherwise resolves like [_enum]. Unknown non-null
+/// strings still fail loudly — the `null` tolerance is only for
+/// genuinely optional enum columns (e.g. `routine_exercises.target_weight_unit`).
+T? _nullableEnum<T extends Enum>(
+  Map<String, dynamic> row,
+  String key,
+  String entity,
+  List<T> values,
+) {
+  final v = row[key];
+  if (v == null) return null;
+  return _enum<T>(row, key, entity, values);
+}
+
 Future<int> _totalRowCount(AppDatabase db) async {
   final foods = FoodEntryRepository(db);
   final weights = BodyWeightLogRepository(db);
   final sessions = WorkoutSessionRepository(db);
   final sets = ExerciseSetRepository(db);
+  final routines = RoutineRepository(db);
   final results = await Future.wait<int>([
     foods.listAll().then((l) => l.length),
     weights.listAll().then((l) => l.length),
     sessions.listAll().then((l) => l.length),
     sets.listAll().then((l) => l.length),
+    routines.listAll().then((l) => l.length),
+    routines.listAllExercises().then((l) => l.length),
   ]);
   return results.fold<int>(0, (a, b) => a + b);
 }
@@ -479,6 +592,7 @@ Future<void> _wipeAll(AppDatabase db) async {
   final weights = BodyWeightLogRepository(db);
   final sessions = WorkoutSessionRepository(db);
   final sets = ExerciseSetRepository(db);
+  final routines = RoutineRepository(db);
 
   // Child first (exercise_sets). Cascade would also handle this via the
   // sessions' `onDelete: cascade`, but being explicit keeps the step
@@ -495,6 +609,12 @@ Future<void> _wipeAll(AppDatabase db) async {
   for (final f in await foods.listAll()) {
     await foods.delete(f.id);
   }
+  // Routines cascade to routine_exercises, so deleting the parent is
+  // sufficient. We still iterate the parent list explicitly so the
+  // order is visible and matches the pattern above.
+  for (final r in await routines.listAll()) {
+    await routines.delete(r.id);
+  }
 }
 
 /// Inserts all rows in FK-forward order (parents before children so
@@ -507,10 +627,16 @@ Future<void> _insertAll(AppDatabase db, _ParsedPayload payload) async {
   final weights = BodyWeightLogRepository(db);
   final sessions = WorkoutSessionRepository(db);
   final sets = ExerciseSetRepository(db);
+  final routines = RoutineRepository(db);
 
   // food_entries and body_weight_logs have no FK dependencies — order
   // among these two is arbitrary. workout_sessions must precede
-  // exercise_sets.
+  // exercise_sets. `routine_exercises` FK-references both `routines`
+  // (parent) and `exercises` (sibling table whose rows are populated
+  // by historical seeding, not by this import flow — round-tripping
+  // routines currently requires the destination DB to already have
+  // the exercise catalog, which mirrors how workout_sessions +
+  // exercise_sets share the session-parent contract).
   for (final row in payload.foodEntries) {
     await foods.add(row);
   }
@@ -522,5 +648,11 @@ Future<void> _insertAll(AppDatabase db, _ParsedPayload payload) async {
   }
   for (final row in payload.exerciseSets) {
     await sets.add(row);
+  }
+  for (final row in payload.routines) {
+    await routines.add(row);
+  }
+  for (final row in payload.routineExercises) {
+    await routines.addExercise(row);
   }
 }

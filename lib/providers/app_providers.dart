@@ -5,6 +5,7 @@ import '../data/repositories/body_weight_log_repository.dart';
 import '../data/repositories/exercise_repository.dart';
 import '../data/repositories/exercise_set_repository.dart';
 import '../data/repositories/food_entry_repository.dart';
+import '../data/repositories/routine_repository.dart';
 import '../data/repositories/workout_session_repository.dart';
 import '../sources/health_kit/health_source.dart';
 import '../sources/health_kit/health_source_impl.dart';
@@ -37,6 +38,10 @@ final bodyWeightLogRepositoryProvider = Provider<BodyWeightLogRepository>((
 
 final exerciseRepositoryProvider = Provider<ExerciseRepository>((ref) {
   return ExerciseRepository(ref.watch(appDatabaseProvider));
+});
+
+final routineRepositoryProvider = Provider<RoutineRepository>((ref) {
+  return RoutineRepository(ref.watch(appDatabaseProvider));
 });
 
 /// HealthKit façade provider (issue #43).
