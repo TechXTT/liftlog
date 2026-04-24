@@ -64,6 +64,13 @@ dependencies:
   # win32-5 override goes away.
   package_info_plus: ^9.0.1
 
+  # SPIKE (issue #63): flutter_cloud_kit for E3 CloudKit viability research.
+  # DO NOT MERGE — this dep is on spike/cloudkit-e3-viability only.
+  # MIT, 43 stars, 2-year-old release. Exposes CKContainer / CKDatabase /
+  # CKRecord / CKRecordType queries. Missing CKRecordZone, CKQuerySubscription,
+  # change tokens. Evaluated in vault/06 Spikes/E3 CloudKit viability.
+  flutter_cloud_kit: ^0.0.3
+
   # iOS "Open Settings" deep link from the Settings → HealthKit section
   # (issue #48). Standard Flutter-team-maintained wrapper for
   # `UIApplication.openURL:`. We only use `launchUrl(Uri.parse('app-settings:'))`

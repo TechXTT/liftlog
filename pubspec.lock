@@ -278,6 +278,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_cloud_kit:
+    dependency: "direct main"
+    description:
+      name: flutter_cloud_kit
+      sha256: f3622aa3b3b7476e87f117c2323f48f5f1272af0fede4debb83d02bae8dfa29f
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.3"
   flutter_lints:
     dependency: "direct dev"
     description:
