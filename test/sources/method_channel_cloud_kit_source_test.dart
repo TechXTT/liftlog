@@ -396,6 +396,121 @@ void main() {
     });
   });
 
+  group('ensureZoneExists — wire contract', () {
+    test('sends "ensureZoneExists" method with the zoneName arg', () async {
+      MethodCall? observed;
+      mockChannel((call) async {
+        observed = call;
+        return null;
+      });
+      final source = MethodChannelCloudKitSource();
+      await source.ensureZoneExists(zoneName: kLiftLogZoneName);
+
+      expect(observed, isNotNull);
+      expect(observed!.method, 'ensureZoneExists');
+      final args = observed!.arguments as Map;
+      expect(args['zoneName'], kLiftLogZoneName);
+    });
+
+    test('PlatformException → CloudKitChannelError', () async {
+      mockChannel((_) async {
+        throw PlatformException(
+          code: 'CK_ENSURE_ZONE_FAILED',
+          message: 'zone create failed',
+          details: 'nserror-details',
+        );
+      });
+      final source = MethodChannelCloudKitSource();
+      await expectLater(
+        () => source.ensureZoneExists(zoneName: kLiftLogZoneName),
+        throwsA(
+          isA<CloudKitChannelError>()
+              .having((e) => e.code, 'code', 'CK_ENSURE_ZONE_FAILED')
+              .having((e) => e.message, 'message', 'zone create failed')
+              .having((e) => e.details, 'details', 'nserror-details'),
+        ),
+      );
+    });
+  });
+
+  group('saveRecord — zoneName wire arg', () {
+    // S7.3: when a non-null zoneName is passed, it must ride in the
+    // args map. When omitted, the key must be absent (default-zone
+    // back-compat with S7.2 probe records).
+    test('zoneName included in args when caller passes it', () async {
+      MethodCall? observed;
+      mockChannel((call) async {
+        observed = call;
+        return null;
+      });
+      final source = MethodChannelCloudKitSource();
+      const record = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {'v': CKInt(1)},
+      );
+      await source.saveRecord(record, zoneName: kLiftLogZoneName);
+
+      final args = observed!.arguments as Map;
+      expect(args['zoneName'], kLiftLogZoneName);
+      expect(args['recordType'], 'HealthSpike');
+      expect(args['recordName'], 'spike-1');
+    });
+
+    test('zoneName key omitted when caller does not pass it', () async {
+      MethodCall? observed;
+      mockChannel((call) async {
+        observed = call;
+        return null;
+      });
+      final source = MethodChannelCloudKitSource();
+      const record = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {'v': CKInt(1)},
+      );
+      // No zoneName arg — S7.2 back-compat path.
+      await source.saveRecord(record);
+
+      final args = observed!.arguments as Map;
+      expect(args.containsKey('zoneName'), isFalse);
+    });
+  });
+
+  group('getRecord — zoneName wire arg', () {
+    test('zoneName included in args when caller passes it', () async {
+      MethodCall? observed;
+      mockChannel((call) async {
+        observed = call;
+        return null; // record-not-found is fine; we only care about args.
+      });
+      final source = MethodChannelCloudKitSource();
+      await source.getRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        zoneName: kLiftLogZoneName,
+      );
+
+      final args = observed!.arguments as Map;
+      expect(args['zoneName'], kLiftLogZoneName);
+      expect(args['recordType'], 'HealthSpike');
+      expect(args['recordName'], 'spike-1');
+    });
+
+    test('zoneName key omitted when caller does not pass it', () async {
+      MethodCall? observed;
+      mockChannel((call) async {
+        observed = call;
+        return null;
+      });
+      final source = MethodChannelCloudKitSource();
+      await source.getRecord(recordType: 'HealthSpike', recordName: 'spike-1');
+
+      final args = observed!.arguments as Map;
+      expect(args.containsKey('zoneName'), isFalse);
+    });
+  });
+
   group('round-trip through encode → decode on the same channel', () {
     test('every value type survives an encode → decode cycle', () async {
       // Capture the Dart-side encoded payload, then synthesize a

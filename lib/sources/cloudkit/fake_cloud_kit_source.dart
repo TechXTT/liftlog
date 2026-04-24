@@ -9,6 +9,14 @@
 
 import 'cloud_kit_source.dart';
 
+/// Sentinel zone-key for records saved with `zoneName == null` (i.e.
+/// the default zone). Can't be a real CloudKit zone name — Apple's
+/// default zone name is the literal `"_defaultZone"`, but we want a
+/// marker the test tree can't accidentally collide with when it
+/// constructs a custom zone. Zero-byte prefix is safe: CKRecordZone
+/// names are alphanumeric + `-` + `_`; a NUL char is illegal.
+const String _kFakeDefaultZoneKey = '\u0000__default__';
+
 /// Stubbed [CloudKitSource] that returns whatever was handed to it.
 ///
 /// Ctor takes the initial [CloudKitAccountStatus] the fake will report
@@ -36,13 +44,30 @@ class FakeCloudKitSource implements CloudKitSource {
   /// How many times [getRecord] has been invoked.
   int getRecordCallCount = 0;
 
-  /// In-memory record store keyed by `(recordType, recordName)`. Keeps
-  /// type-by-type namespacing honest — two records with the same name
-  /// but different types don't collide (mirrors CKRecord.ID semantics).
+  /// How many times [ensureZoneExists] has been invoked.
+  int ensureZoneExistsCallCount = 0;
+
+  /// In-memory record store keyed by `(zoneKey, recordType, recordName)`.
+  /// `zoneKey` is [_kFakeDefaultZoneKey] for null (default zone) or the
+  /// zoneName string for a custom zone. Records in different zones do
+  /// not collide — mirrors `CKRecord.ID(zoneID:)` semantics on the real
+  /// CloudKit side. Before S7.3 this was two-part (type + name) only.
   final Map<String, CloudKitRecord> _store = {};
 
-  String _key(String recordType, String recordName) =>
-      '$recordType\u0000$recordName';
+  /// Zones created via [ensureZoneExists]. Tracked so tests can assert
+  /// idempotency. Real CloudKit state survives process restart; this
+  /// fake only tracks within the current object lifetime, which is
+  /// fine because tests always instantiate a fresh fake.
+  final Set<String> _zones = {};
+
+  String _key(String? zoneName, String recordType, String recordName) {
+    final zoneKey = zoneName ?? _kFakeDefaultZoneKey;
+    return '$zoneKey\u0000$recordType\u0000$recordName';
+  }
+
+  /// Exposes the set of created zones for test assertions. Returns an
+  /// unmodifiable view so callers can't mutate internal state.
+  Set<String> get createdZones => Set.unmodifiable(_zones);
 
   /// Swap the account status the fake will return on subsequent calls.
   /// Not called by production code — test-only seam.
@@ -57,21 +82,31 @@ class FakeCloudKitSource implements CloudKitSource {
   }
 
   @override
-  Future<void> saveRecord(CloudKitRecord record) async {
+  Future<void> ensureZoneExists({required String zoneName}) async {
+    ensureZoneExistsCallCount += 1;
+    if (_error != null) throw _error;
+    // Idempotent — a second call for the same name is a no-op. Matches
+    // CloudKit's `CKModifyRecordZonesOperation` upsert semantics.
+    _zones.add(zoneName);
+  }
+
+  @override
+  Future<void> saveRecord(CloudKitRecord record, {String? zoneName}) async {
     saveRecordCallCount += 1;
     if (_error != null) throw _error;
     // Upsert — matches the real CloudKit default `save` semantics
     // (S7.2 scope: no conflict detection, S7.4 adds batch + policy).
-    _store[_key(record.recordType, record.recordName)] = record;
+    _store[_key(zoneName, record.recordType, record.recordName)] = record;
   }
 
   @override
   Future<CloudKitRecord?> getRecord({
     required String recordType,
     required String recordName,
+    String? zoneName,
   }) async {
     getRecordCallCount += 1;
     if (_error != null) throw _error;
-    return _store[_key(recordType, recordName)];
+    return _store[_key(zoneName, recordType, recordName)];
   }
 }
