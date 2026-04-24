@@ -13,9 +13,10 @@
 // Trust-rule notes mirroring `cloud_kit_source.dart`:
 // * No silent fallback. Errors surface as `FlutterError` with a typed
 //   code string the Dart side can match.
-// * S7.1 shipped `getAccountStatus`; S7.2 (this file) adds
-//   `saveRecord` + `getRecord` for the typed-record round-trip. Zones
-//   remain S7.3 (#71).
+// * S7.1 shipped `getAccountStatus`; S7.2 added `saveRecord` +
+//   `getRecord` for the typed-record round-trip. S7.3 (#71) adds
+//   `ensureZoneExists` and extends save/get with an optional
+//   `zoneName` arg (see `CloudKitRecordCodec.swift` header).
 
 import Flutter
 import Foundation
@@ -39,6 +40,7 @@ public final class CloudKitBridge {
     private let accountStatusHandler = CloudKitAccountStatusHandler()
     private let saveRecordHandler = SaveRecordHandler()
     private let getRecordHandler = GetRecordHandler()
+    private let ensureZoneHandler = EnsureZoneHandler()
 
     /// Binds the CloudKit channel against [binaryMessenger]. Typically
     /// the root `FlutterViewController`'s messenger.
@@ -76,6 +78,8 @@ public final class CloudKitBridge {
             saveRecordHandler.handle(arguments: call.arguments, result: result)
         case "getRecord":
             getRecordHandler.handle(arguments: call.arguments, result: result)
+        case "ensureZoneExists":
+            ensureZoneHandler.handle(arguments: call.arguments, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }

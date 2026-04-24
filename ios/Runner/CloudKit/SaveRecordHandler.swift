@@ -1,18 +1,20 @@
-// Handler for `saveRecord` — issue #70 (S7.2).
+// Handler for `saveRecord` — issue #70 (S7.2), extended #71 (S7.3).
 //
 // Wraps `CKDatabase.save(_:completionHandler:)` on the default
-// container's private database (default zone — zones arrive in S7.3).
-// Decodes the incoming Flutter args map into a `CKRecord` via
-// `CloudKitRecordCodec`, then pushes it to CloudKit. On completion,
-// signals success via a Flutter `null` result; on failure, surfaces a
-// typed `FlutterError` the Dart side re-raises as
-// `CloudKitChannelError`.
+// container's private database. S7.3 adds optional `zoneName` on the
+// args map — decoded by `CloudKitRecordCodec` and baked into the
+// `CKRecord.ID` at construction time. When `zoneName` is absent/nil
+// the record lands in the default zone (S7.2 back-compat); when set,
+// the record targets `CKRecordZone.ID(zoneName: ..., ownerName:
+// CKCurrentUserDefaultName)`. On completion, signals success via a
+// Flutter `null` result; on failure, surfaces a typed `FlutterError`
+// the Dart side re-raises as `CloudKitChannelError`.
 //
 // Trust-rule notes:
 // * No silent fallback: if `CKDatabase.save` fails, the Dart side sees
 //   a failure. Callers never observe a fire-and-forget save.
 // * `CKDatabase.save` overwrites by default (no change-tag check) —
-//   that's the S7.2 design. Conflict detection lands in S7.4 via
+//   that's the S7.2 design. Conflict detection lands in Sprint 8 via
 //   `CKModifyRecordsOperation` with `.ifServerRecordUnchanged`.
 
 import CloudKit

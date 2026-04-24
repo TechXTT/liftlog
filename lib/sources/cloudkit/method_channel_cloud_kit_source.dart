@@ -15,12 +15,26 @@
 //   [CloudKitChannelError] so feature code never imports
 //   `package:flutter/services.dart` just to catch a platform error.
 //
-// Wire protocol (S7.2 / #70) — MUST match `CloudKitRecordCodec.swift`:
+// Wire protocol (S7.2 / #70, extended S7.3 / #71) — MUST match
+// `CloudKitRecordCodec.swift`:
+//
+//   ensureZoneExists (S7.3):
+//     args    = { "zoneName": String }
+//     returns: null on success; `FlutterError` on failure (re-raised as
+//              [CloudKitChannelError]). Idempotent — creating an
+//              existing zone succeeds naturally (CloudKit upserts by
+//              zone ID).
 //
 //   saveRecord:
 //     args = {
 //       "recordType": String,
 //       "recordName": String,
+//       "zoneName":   String?  — S7.3: optional. When omitted/null,
+//                                 Swift uses the default zone (back-compat
+//                                 with S7.2 probe records). When set,
+//                                 Swift uses
+//                                 CKRecordZone.ID(zoneName: ...,
+//                                   ownerName: CKCurrentUserDefaultName).
 //       "fields": Map<String, List> where each value is
 //                 a 2-element List<dynamic> of the form [typeTag, raw],
 //                 typeTag ∈ {"string","int","double","bool","dateTime"},
@@ -36,10 +50,16 @@
 //     returns: null
 //
 //   getRecord:
-//     args    = { "recordType": String, "recordName": String }
+//     args    = {
+//       "recordType": String,
+//       "recordName": String,
+//       "zoneName":   String?  — same semantics as saveRecord.
+//     }
 //     returns: null if record does not exist (CKError.unknownItem);
 //              otherwise Map with the same shape as saveRecord's args
-//              (including "recordType" + "recordName" + "fields").
+//              (including "recordType" + "recordName" + "fields"). Note
+//              that the returned map does NOT echo "zoneName"; the
+//              caller already knows which zone it asked for.
 //
 // Unknown typeTag on decode → [CloudKitChannelError]. No fallback to
 // String: the spike showed that lossy path is exactly the trust-rule
@@ -68,6 +88,9 @@ const String _kSaveRecord = 'saveRecord';
 
 /// Method name for `getRecord`.
 const String _kGetRecord = 'getRecord';
+
+/// Method name for `ensureZoneExists` (S7.3).
+const String _kEnsureZoneExists = 'ensureZoneExists';
 
 // Wire typeTags. Mirrored on the Swift side in `CloudKitRecordCodec`.
 const String _kTagString = 'string';
@@ -124,17 +147,41 @@ class MethodChannelCloudKitSource implements CloudKitSource {
   }
 
   @override
-  Future<void> saveRecord(CloudKitRecord record) async {
+  Future<void> ensureZoneExists({required String zoneName}) async {
+    try {
+      await _channel.invokeMethod<void>(_kEnsureZoneExists, <String, Object?>{
+        'zoneName': zoneName,
+      });
+    } on PlatformException catch (e) {
+      throw CloudKitChannelError(
+        code: e.code,
+        message: e.message ?? '',
+        details: e.details,
+      );
+    }
+  }
+
+  @override
+  Future<void> saveRecord(CloudKitRecord record, {String? zoneName}) async {
     final encodedFields = <String, List<Object?>>{};
     for (final entry in record.fields.entries) {
       encodedFields[entry.key] = _encodeValue(entry.value);
     }
+    // Build the args map explicitly. When `zoneName` is null we omit
+    // the key entirely rather than sending a `"zoneName": null` — the
+    // Swift side reads it as `args["zoneName"] as? String` which
+    // treats missing and null identically, but omitting keeps the wire
+    // clean and matches the S7.2 back-compat contract.
+    final args = <String, Object?>{
+      'recordType': record.recordType,
+      'recordName': record.recordName,
+      'fields': encodedFields,
+    };
+    if (zoneName != null) {
+      args['zoneName'] = zoneName;
+    }
     try {
-      await _channel.invokeMethod<void>(_kSaveRecord, <String, Object?>{
-        'recordType': record.recordType,
-        'recordName': record.recordName,
-        'fields': encodedFields,
-      });
+      await _channel.invokeMethod<void>(_kSaveRecord, args);
     } on PlatformException catch (e) {
       throw CloudKitChannelError(
         code: e.code,
@@ -148,13 +195,18 @@ class MethodChannelCloudKitSource implements CloudKitSource {
   Future<CloudKitRecord?> getRecord({
     required String recordType,
     required String recordName,
+    String? zoneName,
   }) async {
+    final args = <String, Object?>{
+      'recordType': recordType,
+      'recordName': recordName,
+    };
+    if (zoneName != null) {
+      args['zoneName'] = zoneName;
+    }
     final Object? raw;
     try {
-      raw = await _channel.invokeMethod<Object?>(_kGetRecord, <String, Object?>{
-        'recordType': recordType,
-        'recordName': recordName,
-      });
+      raw = await _channel.invokeMethod<Object?>(_kGetRecord, args);
     } on PlatformException catch (e) {
       throw CloudKitChannelError(
         code: e.code,

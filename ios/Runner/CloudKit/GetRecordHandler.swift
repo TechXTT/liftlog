@@ -1,10 +1,14 @@
-// Handler for `getRecord` — issue #70 (S7.2).
+// Handler for `getRecord` — issue #70 (S7.2), extended #71 (S7.3).
 //
 // Fetches a single record by name from the default container's private
-// database (default zone). Uses `CKDatabase.fetch(withRecordID:
-// completionHandler:)`. Encodes the resulting `CKRecord` via
-// `CloudKitRecordCodec` and returns it as a `[String: Any]` map to
-// Flutter.
+// database. Uses `CKDatabase.fetch(withRecordID: completionHandler:)`.
+// S7.3 adds optional `zoneName` on the args map — when absent/nil the
+// fetch targets the default zone (S7.2 back-compat); when set, the
+// record ID is scoped to `CKRecordZone.ID(zoneName: ..., ownerName:
+// CKCurrentUserDefaultName)` via
+// `CloudKitRecordCodec.recordID(forRecordName:zoneName:)`. Encodes the
+// resulting `CKRecord` via `CloudKitRecordCodec` and returns it as a
+// `[String: Any]` map to Flutter.
 //
 // Trust-rule notes:
 // * Record-not-found → `nil` result (Dart-side null). Get-by-id
@@ -57,9 +61,13 @@ public final class GetRecordHandler {
             ))
             return
         }
+        // S7.3: optional zoneName. Missing → default zone (back-compat
+        // with S7.2 probe records). Present → scope the record ID to
+        // the named custom zone under the current user.
+        let zoneName = args["zoneName"] as? String
 
         let db = CKContainer.default().privateCloudDatabase
-        let recordID = CKRecord.ID(recordName: recordName)
+        let recordID = CloudKitRecordCodec.recordID(forRecordName: recordName, zoneName: zoneName)
         db.fetch(withRecordID: recordID) { record, error in
             if let ckError = error as? CKError, ckError.code == .unknownItem {
                 // Record-not-found — Dart sees this as `null`.

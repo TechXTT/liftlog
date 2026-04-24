@@ -20,8 +20,21 @@
 //   the ordering contract (it is load-bearing — Apple's order, not Dart's
 //   declaration-order whim).
 //
-// This is the walking skeleton. S7.2 (#70) adds record CRUD; S7.3 (#71)
-// adds zones. Keep this file small and honest.
+// S7.1 shipped `getAccountStatus`. S7.2 (#70) added record CRUD in the
+// default zone. S7.3 (#71, this change) introduces record zones:
+// `ensureZoneExists(zoneName:)` + optional `zoneName` on save/get. When
+// `zoneName` is null (back-compat with S7.2 probe records), the default
+// zone is used; when set, records live in the named custom zone under
+// `CKCurrentUserDefaultName`. Keep this file small and honest.
+
+/// Canonical app zone name. All real app data (post-S7.3) lives here,
+/// not the default zone. One zone keeps change-feed wiring cheap (S7.5
+/// uses `CKFetchRecordZoneChangesOperation` per zone) and scopes
+/// `deleteRecordZone` to a single blast-radius for account reset.
+///
+/// S7.2 shipped probe records into the default zone — those are
+/// disposable orphans post-S7.3; see Runbooks.md for cleanup.
+const String kLiftLogZoneName = 'LiftLogZone';
 
 /// CloudKit account status, mirroring Apple's `CKAccountStatus`.
 ///
@@ -123,7 +136,28 @@ abstract class CloudKitSource {
   /// platform error or unrecognised raw value.
   Future<CloudKitAccountStatus> getAccountStatus();
 
-  /// Saves [record] to the private database (default zone).
+  /// Creates the custom record zone named [zoneName] in the private
+  /// database if it does not already exist. Idempotent — a second call
+  /// for the same name is a no-op.
+  ///
+  /// On iOS the underlying call is `CKModifyRecordZonesOperation`
+  /// against `CKContainer.default().privateCloudDatabase`. CloudKit
+  /// treats the op as an upsert by zone ID, so creating an existing
+  /// zone succeeds naturally (no special-case "already exists" mapping
+  /// required). Any real failure (network, auth, entitlement) surfaces
+  /// as [CloudKitChannelError].
+  ///
+  /// Zones are owned by the current user
+  /// (`CKCurrentUserDefaultName`) — S7.3 does not support shared /
+  /// public zones (explicit v2 non-goal; see CLAUDE.md).
+  Future<void> ensureZoneExists({required String zoneName});
+
+  /// Saves [record] to the private database.
+  ///
+  /// When [zoneName] is null, the record lands in the default zone —
+  /// kept for back-compat with S7.2 probe records. Callers handling
+  /// real app data should pass [kLiftLogZoneName] and ensure the zone
+  /// exists first via [ensureZoneExists].
   ///
   /// On iOS the underlying call is
   /// `CKDatabase.save(_:completionHandler:)` on
@@ -134,10 +168,16 @@ abstract class CloudKitSource {
   /// Errors surface as [CloudKitChannelError]; a `MissingPluginException`
   /// propagates unchanged. Never fire-and-forget: the returned Future
   /// completes only when the native side has acknowledged the save.
-  Future<void> saveRecord(CloudKitRecord record);
+  Future<void> saveRecord(CloudKitRecord record, {String? zoneName});
 
   /// Fetches a single record by [recordType] + [recordName] from the
-  /// private database (default zone).
+  /// private database.
+  ///
+  /// When [zoneName] is null, the fetch targets the default zone (S7.2
+  /// back-compat). When set, the record ID is scoped to the named
+  /// custom zone under `CKCurrentUserDefaultName`. A record saved in
+  /// the default zone is NOT visible from a custom zone and vice
+  /// versa — zone scoping is absolute.
   ///
   /// Returns `null` when CloudKit reports the record does not exist
   /// (native-side maps `CKError.unknownItem` to a null result). Any
@@ -150,6 +190,7 @@ abstract class CloudKitSource {
   Future<CloudKitRecord?> getRecord({
     required String recordType,
     required String recordName,
+    String? zoneName,
   });
 }
 

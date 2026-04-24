@@ -339,4 +339,191 @@ void main() {
       );
     });
   });
+
+  group('kLiftLogZoneName constant', () {
+    // Load-bearing: the Dart façade exports this as the canonical app
+    // zone name; Runbooks.md + feature code references the literal
+    // "LiftLogZone". If this ever changes, CloudKit records land in a
+    // different zone on next run — an incident, not a refactor. Pin it.
+    test('equals "LiftLogZone"', () {
+      expect(kLiftLogZoneName, 'LiftLogZone');
+    });
+  });
+
+  group('FakeCloudKitSource — ensureZoneExists', () {
+    test('first call creates the zone; createdZones reflects it', () async {
+      final fake = FakeCloudKitSource();
+      expect(fake.createdZones, isEmpty);
+
+      await fake.ensureZoneExists(zoneName: kLiftLogZoneName);
+
+      expect(fake.createdZones, contains(kLiftLogZoneName));
+      expect(fake.createdZones, hasLength(1));
+      expect(fake.ensureZoneExistsCallCount, 1);
+    });
+
+    test('second call with the same name is a no-op (idempotent)', () async {
+      final fake = FakeCloudKitSource();
+      await fake.ensureZoneExists(zoneName: kLiftLogZoneName);
+      await fake.ensureZoneExists(zoneName: kLiftLogZoneName);
+
+      // Still one zone created; call count reflects both invocations.
+      expect(fake.createdZones, hasLength(1));
+      expect(fake.createdZones, contains(kLiftLogZoneName));
+      expect(fake.ensureZoneExistsCallCount, 2);
+    });
+
+    test('distinct zone names create distinct zones', () async {
+      // Forward-looking: S7.3 only uses one zone, but the fake keeps
+      // its tracking general so a future multi-zone strategy doesn't
+      // need another test scaffold.
+      final fake = FakeCloudKitSource();
+      await fake.ensureZoneExists(zoneName: 'LiftLogZone');
+      await fake.ensureZoneExists(zoneName: 'SomeOtherZone');
+
+      expect(fake.createdZones, hasLength(2));
+      expect(fake.createdZones, contains('LiftLogZone'));
+      expect(fake.createdZones, contains('SomeOtherZone'));
+    });
+
+    test('configured error surfaces on ensureZoneExists', () async {
+      final err = Exception('network down');
+      final fake = FakeCloudKitSource(error: err);
+      expect(
+        () => fake.ensureZoneExists(zoneName: kLiftLogZoneName),
+        throwsA(same(err)),
+      );
+    });
+
+    test('createdZones view is unmodifiable', () {
+      // Defensive: callers can't mutate internal fake state by
+      // reaching into the accessor's returned set.
+      final fake = FakeCloudKitSource();
+      expect(
+        () => fake.createdZones.add('sneaky'),
+        throwsA(isA<UnsupportedError>()),
+      );
+    });
+  });
+
+  group('FakeCloudKitSource — zone-scoped CRUD', () {
+    test('round-trip with explicit zoneName preserves the record', () async {
+      final fake = FakeCloudKitSource();
+      await fake.ensureZoneExists(zoneName: kLiftLogZoneName);
+
+      const saved = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {'kcal': CKInt(612)},
+      );
+      await fake.saveRecord(saved, zoneName: kLiftLogZoneName);
+
+      final fetched = await fake.getRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        zoneName: kLiftLogZoneName,
+      );
+      expect(fetched, equals(saved));
+    });
+
+    test(
+      'record saved in default zone is NOT visible from LiftLogZone',
+      () async {
+        // Trust rule: zone scoping is absolute. A record in the default
+        // zone must not bleed into a custom zone — otherwise cleanup
+        // of S7.2 probe records wouldn't be isolable.
+        final fake = FakeCloudKitSource();
+        const record = CloudKitRecord(
+          recordType: 'HealthSpike',
+          recordName: 'spike-1',
+          fields: {'v': CKInt(1)},
+        );
+        // Save into default zone (zoneName omitted == null).
+        await fake.saveRecord(record);
+
+        // Default-zone fetch sees it.
+        expect(
+          await fake.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+          ),
+          equals(record),
+        );
+        // LiftLogZone fetch does NOT.
+        expect(
+          await fake.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+            zoneName: kLiftLogZoneName,
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test(
+      'record saved in LiftLogZone is NOT visible from default zone',
+      () async {
+        final fake = FakeCloudKitSource();
+        const record = CloudKitRecord(
+          recordType: 'HealthSpike',
+          recordName: 'spike-1',
+          fields: {'v': CKInt(1)},
+        );
+        await fake.saveRecord(record, zoneName: kLiftLogZoneName);
+
+        // Custom-zone fetch sees it.
+        expect(
+          await fake.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+            zoneName: kLiftLogZoneName,
+          ),
+          equals(record),
+        );
+        // Default-zone fetch does NOT.
+        expect(
+          await fake.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test(
+      'same record name in different zones stores different records',
+      () async {
+        // Complementary to the isolation tests above: saves to each
+        // zone keep their own copy.
+        final fake = FakeCloudKitSource();
+        const defaultRec = CloudKitRecord(
+          recordType: 'HealthSpike',
+          recordName: 'same',
+          fields: {'v': CKInt(1)},
+        );
+        const customRec = CloudKitRecord(
+          recordType: 'HealthSpike',
+          recordName: 'same',
+          fields: {'v': CKInt(2)},
+        );
+        await fake.saveRecord(defaultRec);
+        await fake.saveRecord(customRec, zoneName: kLiftLogZoneName);
+
+        expect(
+          await fake.getRecord(recordType: 'HealthSpike', recordName: 'same'),
+          equals(defaultRec),
+        );
+        expect(
+          await fake.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'same',
+            zoneName: kLiftLogZoneName,
+          ),
+          equals(customRec),
+        );
+      },
+    );
+  });
 }

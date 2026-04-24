@@ -1,4 +1,4 @@
-// CloudKit typed record codec — issue #70 (S7.2).
+// CloudKit typed record codec — issue #70 (S7.2), extended in #71 (S7.3).
 //
 // Translates between Flutter's channel map representation and
 // CloudKit's `CKRecord`. The Dart side owns the `CloudKitRecord` value
@@ -24,10 +24,28 @@
 //   Save method args map:
 //     { "recordType": String,
 //       "recordName": String,
+//       "zoneName":   String?   — S7.3: optional. Null/missing = default
+//                                  zone (back-compat with S7.2). Non-nil
+//                                  = CKRecordZone.ID(zoneName: ...,
+//                                    ownerName: CKCurrentUserDefaultName).
 //       "fields": [String: [Any]]  (each value is [typeTag, raw]) }
 //
+//   Get method args map:
+//     { "recordType": String,
+//       "recordName": String,
+//       "zoneName":   String?   — same semantics as save. }
+//
 //   Get method response (or null on record-not-found):
-//     same shape as save args.
+//     { "recordType": String, "recordName": String, "fields": ... }
+//     Note: response does NOT echo "zoneName"; the caller already knows
+//     which zone it asked for.
+//
+//   EnsureZoneExists method args map:
+//     { "zoneName": String }
+//     Handled by `EnsureZoneHandler` (separate file) against
+//     `CKModifyRecordZonesOperation`. Idempotent — Apple's server
+//     upserts by zoneID so creating an existing zone naturally
+//     succeeds.
 //
 // Unknown typeTag on decode → throws `CloudKitCodecError.unknownTypeTag`;
 // the caller surfaces as `FlutterError(code: "CK_UNKNOWN_TYPE_TAG")`.
@@ -64,11 +82,13 @@ public enum CloudKitRecordCodec {
     static let tagBool = "bool"
     static let tagDateTime = "dateTime"
 
-    /// Decodes the inbound args map into a `CKRecord` in the default
-    /// zone (no custom zone — S7.3 adds zones).
+    /// Decodes the inbound args map into a `CKRecord`.
     ///
     /// Expected shape: `{ "recordType": String, "recordName": String,
-    /// "fields": [String: [Any]] }`.
+    /// "zoneName": String?, "fields": [String: [Any]] }`. When
+    /// `zoneName` is nil/missing the record ID uses the default zone
+    /// (S7.2 back-compat); when present it uses
+    /// `CKRecordZone.ID(zoneName: ..., ownerName: CKCurrentUserDefaultName)`.
     public static func decodeRecord(from arguments: Any?) throws -> CKRecord {
         guard let args = arguments as? [String: Any] else {
             throw CloudKitCodecError.missingKey("arguments must be a [String: Any] map")
@@ -83,13 +103,31 @@ public enum CloudKitRecordCodec {
             throw CloudKitCodecError.missingKey("fields")
         }
 
-        let recordID = CKRecord.ID(recordName: recordName)
+        // S7.3: optional zoneName. Missing → default zone. Present →
+        // custom zone under the current user.
+        let zoneName = args["zoneName"] as? String
+        let recordID = recordID(forRecordName: recordName, zoneName: zoneName)
         let record = CKRecord(recordType: recordType, recordID: recordID)
 
         for (key, value) in rawFields {
             try applyField(to: record, key: key, wire: value)
         }
         return record
+    }
+
+    /// Constructs a `CKRecord.ID` scoped either to the default zone or
+    /// to a custom zone owned by the current user.
+    ///
+    /// When `zoneName` is nil we use the no-zone-arg initializer, which
+    /// lands in the default zone (`CKRecordZone.default()`). When non-nil
+    /// we build `CKRecordZone.ID(zoneName:, ownerName: CKCurrentUserDefaultName)`.
+    /// S7.3 scope: single-user, no shared/public zones.
+    public static func recordID(forRecordName recordName: String, zoneName: String?) -> CKRecord.ID {
+        guard let zoneName = zoneName else {
+            return CKRecord.ID(recordName: recordName)
+        }
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        return CKRecord.ID(recordName: recordName, zoneID: zoneID)
     }
 
     /// Encodes a `CKRecord` into the response map Flutter expects.
