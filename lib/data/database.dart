@@ -122,6 +122,29 @@ class AppDatabase extends _$AppDatabase {
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
+          // Backfill `exercise_sets.exercise_id` from the `exercises` table.
+          //
+          // Why: the v2→v3 migration (issue #42) seeded `exercises` from the
+          // distinct historical `exerciseName` values and added a nullable
+          // `exercise_id` FK on `exercise_sets`, but did NOT link existing
+          // sets to their seeded exercise row. This statement closes that
+          // carryover (issue #47) so historical sets are addressable by id
+          // for future adaptive-programming features.
+          //
+          // Idempotency: the `WHERE exercise_id IS NULL` guard makes every
+          // subsequent open a no-op — rows already linked stay linked, rows
+          // that still lack a matching `exercises` entry (e.g. a set whose
+          // name was deleted from `exercises`) stay null. Safe to run on
+          // every boot.
+          //
+          // Trust rule: this populates a nullable FK that was introduced
+          // specifically to enable this link — restoration of intent, not
+          // silent mutation of user-visible totals or units.
+          await customStatement('''
+            UPDATE exercise_sets
+               SET exercise_id = (SELECT id FROM exercises WHERE canonical_name = exercise_sets.exercise_name)
+             WHERE exercise_id IS NULL
+          ''');
         },
       );
 
