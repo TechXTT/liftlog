@@ -31,23 +31,14 @@ jobs:
           cache: true
 
       - name: Select Xcode 26 (match local dev toolchain)
-        # GitHub's macos-latest defaults to Xcode 16.4 (iOS 18.5 SDK) as of
-        # 2026-04-24. Our local dev is Xcode 26.x; some plugins (notably
-        # device_info_plus 12.4.0 → NSProcessInfo.isiOSAppOnVision) expect
-        # iOS 26 SDK declarations and fail on older Xcodes with
-        # "No visible @interface ... declares the selector" Clang errors.
-        #
-        # The runner image has Xcode 26.0.1 installed — select it. Diagnostic
-        # below confirms the choice on every run so we never wonder again.
+        # The CI Xcode version is a pinned dep — bump it deliberately alongside
+        # the Flutter pin + local dev Xcode, never rely on macos-latest's
+        # default. See vault/05 Architecture/Skills.md → "CI Xcode version is a
+        # pinned dep". The runner image ships Xcode 26.0.1 installed; local
+        # dev is Xcode 26.4.1. The `dependency_overrides: device_info_plus: 11.3.0`
+        # in pubspec.yaml handles the SDK gap until GitHub ships 26.4+ or the
+        # plugin ships an @available guard.
         run: sudo xcode-select -s /Applications/Xcode_26.0.1.app
-
-      - name: Diagnose toolchain (Xcode + SDK versions)
-        # Keep this on for one or two more runs after the S4.3 CI resolves,
-        # then remove. Cheap insurance while we verify the fix holds.
-        run: |
-          echo "=== xcode-select -p ===" && sudo xcode-select -p
-          echo "=== xcodebuild -version ===" && xcodebuild -version
-          echo "=== iphoneos SDK version ===" && xcrun --sdk iphoneos --show-sdk-version
 
       - name: Install dependencies
         run: flutter pub get
