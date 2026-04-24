@@ -8,7 +8,7 @@
 
 import 'dart:io';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show InsertMode, Value, Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -173,17 +173,27 @@ void main() {
       // V2 sample has "Bench Press" (x2) and "Squat" (x1) → 2 distinct.
       expect(names, ['Bench Press', 'Squat']);
 
-      // Also confirm `exercise_id` FK column was added (nullable, no
-      // backfill in this PR — see database.dart onUpgrade comment).
+      // Confirm `exercise_id` FK column was added AND backfilled by the
+      // `beforeOpen` pass (issue #47). Historical sets are now linked to
+      // their seeded `exercises` row by matching `exercise_name` →
+      // `canonical_name`.
       final setRows = await db
-          .customSelect('SELECT exercise_id FROM exercise_sets ORDER BY id ASC')
+          .customSelect(
+            'SELECT exercise_name, exercise_id FROM exercise_sets ORDER BY id ASC',
+          )
           .get();
       expect(setRows, hasLength(3));
       expect(
-        setRows.every((r) => r.read<int?>('exercise_id') == null),
+        setRows.every((r) => r.read<int?>('exercise_id') != null),
         isTrue,
-        reason: 'v2→v3 migration does not backfill exercise_id',
+        reason: 'beforeOpen backfill must populate every matchable set',
       );
+      // Both "Bench Press" rows should map to the same exercise id.
+      final benchIds = setRows
+          .where((r) => r.read<String>('exercise_name') == 'Bench Press')
+          .map((r) => r.read<int>('exercise_id'))
+          .toSet();
+      expect(benchIds, hasLength(1));
     });
 
     test('seeding is idempotent across successive opens', () async {
@@ -221,6 +231,187 @@ void main() {
       final secondCount = await countExercises();
       expect(secondCount, firstCount,
           reason: 'seeding must be idempotent under repeated open');
+    });
+  });
+
+  group('exercise_id backfill', () {
+    // Exercises the `beforeOpen` UPDATE introduced in issue #47 directly —
+    // not the v2→v3 migration path. Builds a schema-v3-shaped DB in a
+    // specific state (sets present, exercises present, exercise_id
+    // deliberately null), closes it, reopens via AppDatabase, and
+    // asserts the FK is populated after re-open.
+
+    Directory tempDir() {
+      final dir = Directory.systemTemp.createTempSync('liftlog_backfill_');
+      addTearDown(() {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+      return dir;
+    }
+
+    /// Phase-1 helper: writes the v3 schema via AppDatabase.forTesting,
+    /// inserts a session + sets + exercises rows, forces `exercise_id`
+    /// to null on every set, and closes the DB. The next open against
+    /// the same file must trigger the `beforeOpen` backfill.
+    Future<void> seedV3DatabaseWithNullExerciseIds({
+      required String dbPath,
+      required List<String> setNames,
+      required List<String> exerciseCanonicalNames,
+    }) async {
+      final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      try {
+        final sessionId = await db.into(db.workoutSessions).insert(
+              WorkoutSessionsCompanion.insert(
+                startedAt: DateTime(2026, 4, 23, 9),
+              ),
+            );
+        for (var i = 0; i < setNames.length; i++) {
+          await db.into(db.exerciseSets).insert(
+                ExerciseSetsCompanion.insert(
+                  sessionId: sessionId,
+                  exerciseName: setNames[i],
+                  reps: 5,
+                  weight: 80.0,
+                  weightUnit: WeightUnit.kg,
+                  status: WorkoutSetStatus.completed,
+                  orderIndex: i,
+                ),
+              );
+        }
+        for (final name in exerciseCanonicalNames) {
+          await db.into(db.exercises).insert(
+                ExercisesCompanion.insert(
+                  canonicalName: name,
+                  createdAt: DateTime(2026, 4, 23, 8),
+                ),
+                mode: InsertMode.insertOrIgnore,
+              );
+        }
+        // Force exercise_id back to null — `beforeOpen` already ran on
+        // this handle when it was first opened, so without this the
+        // sets would already be linked and the backfill assertion
+        // below would tautologically pass.
+        await db.customStatement(
+          'UPDATE exercise_sets SET exercise_id = NULL',
+        );
+      } finally {
+        await db.close();
+      }
+    }
+
+    test('populates exercise_id for every matchable set on re-open',
+        () async {
+      final dir = tempDir();
+      final dbPath = p.join(dir.path, 'liftlog.sqlite');
+
+      await seedV3DatabaseWithNullExerciseIds(
+        dbPath: dbPath,
+        setNames: const ['Bench Press', 'Squat', 'Bench Press'],
+        exerciseCanonicalNames: const ['Bench Press', 'Squat'],
+      );
+
+      // Re-open triggers `beforeOpen` → backfill.
+      final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      addTearDown(db.close);
+
+      final rows = await db
+          .customSelect(
+            'SELECT exercise_name, exercise_id FROM exercise_sets ORDER BY id ASC',
+          )
+          .get();
+      expect(rows, hasLength(3));
+      expect(
+        rows.every((r) => r.read<int?>('exercise_id') != null),
+        isTrue,
+        reason: 'every set whose name matches an exercise must be linked',
+      );
+
+      // Both "Bench Press" rows point at the same id; "Squat" points at
+      // a different one.
+      final benchIds = rows
+          .where((r) => r.read<String>('exercise_name') == 'Bench Press')
+          .map((r) => r.read<int>('exercise_id'))
+          .toSet();
+      expect(benchIds, hasLength(1));
+
+      final squatId = rows
+          .firstWhere(
+            (r) => r.read<String>('exercise_name') == 'Squat',
+          )
+          .read<int>('exercise_id');
+      expect(benchIds.single, isNot(squatId));
+
+      // And each id matches the canonical_name on `exercises`.
+      Future<String> canonicalFor(int id) async {
+        final row = await db
+            .customSelect(
+              'SELECT canonical_name FROM exercises WHERE id = ?',
+              variables: [Variable<int>(id)],
+            )
+            .getSingle();
+        return row.read<String>('canonical_name');
+      }
+
+      expect(await canonicalFor(benchIds.single), 'Bench Press');
+      expect(await canonicalFor(squatId), 'Squat');
+    });
+
+    test('leaves exercise_id null when no matching exercise exists',
+        () async {
+      final dir = tempDir();
+      final dbPath = p.join(dir.path, 'liftlog.sqlite');
+
+      await seedV3DatabaseWithNullExerciseIds(
+        dbPath: dbPath,
+        setNames: const ['ThisNameDoesntExist'],
+        exerciseCanonicalNames: const [], // no matching exercises row.
+      );
+
+      final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      addTearDown(db.close);
+
+      final rows = await db
+          .customSelect('SELECT exercise_id FROM exercise_sets')
+          .get();
+      expect(rows, hasLength(1));
+      expect(rows.single.read<int?>('exercise_id'), isNull,
+          reason: 'no matching exercise → exercise_id must stay null');
+    });
+
+    test('is idempotent: second re-open does not mutate row contents',
+        () async {
+      final dir = tempDir();
+      final dbPath = p.join(dir.path, 'liftlog.sqlite');
+
+      await seedV3DatabaseWithNullExerciseIds(
+        dbPath: dbPath,
+        setNames: const ['Bench Press', 'Squat'],
+        exerciseCanonicalNames: const ['Bench Press', 'Squat'],
+      );
+
+      Future<List<Map<String, Object?>>> snapshot() async {
+        final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+        try {
+          final rows = await db
+              .customSelect(
+                'SELECT id, session_id, exercise_name, reps, weight, '
+                'weight_unit, status, order_index, exercise_id, source '
+                'FROM exercise_sets ORDER BY id ASC',
+              )
+              .get();
+          return rows.map((r) => r.data).toList();
+        } finally {
+          await db.close();
+        }
+      }
+
+      final firstSnapshot = await snapshot();
+      expect(firstSnapshot, hasLength(2));
+      expect(firstSnapshot.every((r) => r['exercise_id'] != null), isTrue);
+
+      final secondSnapshot = await snapshot();
+      expect(secondSnapshot, equals(firstSnapshot),
+          reason: 'backfill must be a no-op when exercise_id is already set');
     });
   });
 
