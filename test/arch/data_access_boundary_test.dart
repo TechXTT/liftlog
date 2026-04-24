@@ -15,6 +15,23 @@
 //   comment `// drift-write-ok:` opts out — used only when we need `write`
 //   for a legitimate reason (justified in a PR).
 //
+// Rule 3 — `lib/sources/**` is a data-boundary layer (forward-looking,
+//   anticipates S4.3 integration sources like HealthKit / barcode /
+//   photo-estimate). Feature code must only import the bare façade file
+//   from a source module, never the implementation files inside.
+//   Convention: a façade file's path ends with `_source.dart` (e.g.
+//   `lib/sources/healthkit/healthkit_source.dart`). Any feature import of
+//   a non-façade file under `lib/sources/<name>/` fails. The rule runs
+//   even when `lib/sources/` doesn't exist yet — it simply finds nothing
+//   to flag, keeping the test machinery ready the day a first source
+//   module lands. See CLAUDE.md (data-access boundary, v2.0 contract).
+//
+// Rule 4 — `FoodEntryType` and `Source` are orthogonal — do not conflate.
+//   Feature code (`lib/features/**`) must never reference `Source.` —
+//   features receive `Source`-typed values from repositories, they don't
+//   construct them raw. Tests (`test/**`) may use `Source.` freely. See
+//   CLAUDE.md (canonical enums, v2.0 trust rules).
+//
 // Implementation is deliberately plain: File.readAsStringSync + regex +
 // manual Directory walks. No build_runner reflection, no glob packages.
 // Keep regexes narrow; brittleness is the known risk.
@@ -30,6 +47,7 @@ void main() {
   final projectRoot = _findProjectRoot();
   final featuresDir = Directory(p.join(projectRoot, 'lib', 'features'));
   final reposDir = Directory(p.join(projectRoot, 'lib', 'data', 'repositories'));
+  final sourcesDir = Directory(p.join(projectRoot, 'lib', 'sources'));
 
   group('data access boundary', () {
     test('feature code does not reach into Drift directly', () {
@@ -84,6 +102,98 @@ void main() {
         violations,
         isEmpty,
         reason: 'Feature code must go through repositories. Violations:\n'
+            '${violations.join('\n')}',
+      );
+    });
+
+    test('feature code imports only the lib/sources/<name>/ façade', () {
+      // Forward-looking rule (see Rule 3 at top of file). Convention:
+      // a façade file's path ends with `_source.dart`. Implementation
+      // files inside `lib/sources/<name>/` are off-limits to feature
+      // code — features must depend only on the façade.
+      //
+      // If `lib/sources/` doesn't exist yet this test runs clean (there
+      // is nothing to import); the rule still catches the first
+      // offender the day a source module lands.
+      //
+      // Regex anatomy:
+      //   ^\s*import\s+['"]          — import directive start
+      //   package:liftlog_app/sources/ — our package prefix + sources/
+      //   [^/]+/                     — exactly one subdirectory (module name)
+      //   [^'"]*\.dart               — some file path ending in .dart
+      //   ['"]                       — closing quote
+      final sourcesImport = RegExp(
+        r'''^\s*import\s+['"]package:liftlog_app/sources/([^/]+)/([^'"]*\.dart)['"][^;]*;''',
+      );
+
+      final violations = <String>[];
+      for (final file in _dartFilesIn(featuresDir)) {
+        final relPath = p.relative(file.path, from: projectRoot);
+        final lines = file.readAsStringSync().split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          final rawLine = lines[i];
+          final commentIdx = rawLine.indexOf('//');
+          final codePart =
+              commentIdx >= 0 ? rawLine.substring(0, commentIdx) : rawLine;
+          final match = sourcesImport.firstMatch(codePart);
+          if (match == null) continue;
+          final importedFile = match.group(2)!;
+          // Façade convention: filename ends with `_source.dart`.
+          if (importedFile.endsWith('_source.dart')) continue;
+          violations.add(
+            '$relPath:${i + 1}: feature code must import only the '
+            '<name>_source.dart façade, not ${rawLine.trim()}',
+          );
+        }
+      }
+
+      // `sourcesDir` is informational — the test does not require the
+      // directory to exist. Referenced here so the linter doesn't flag
+      // the local as unused and so a future reader sees the link.
+      assert(sourcesDir.path.endsWith('sources'));
+
+      expect(
+        violations,
+        isEmpty,
+        reason: 'Feature code must import only the <name>_source.dart '
+            'façade from lib/sources/<name>/. Violations:\n'
+            '${violations.join('\n')}',
+      );
+    });
+
+    test('FoodEntryType and Source are orthogonal: features never reference Source.',
+        () {
+      expect(featuresDir.existsSync(), isTrue,
+          reason: 'expected lib/features at ${featuresDir.path}');
+
+      // Plain token match: `Source.` anywhere in feature code. Features
+      // must never construct `Source` values raw — they receive them
+      // from repositories. Tests can freely reference `Source.`; this
+      // rule only scans `lib/features/**`.
+      final sourceToken = RegExp(r'\bSource\.');
+
+      final violations = <String>[];
+      for (final file in _dartFilesIn(featuresDir)) {
+        final relPath = p.relative(file.path, from: projectRoot);
+        final lines = file.readAsStringSync().split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          final rawLine = lines[i];
+          final commentIdx = rawLine.indexOf('//');
+          final codePart =
+              commentIdx >= 0 ? rawLine.substring(0, commentIdx) : rawLine;
+          if (!sourceToken.hasMatch(codePart)) continue;
+          violations.add(
+            '$relPath:${i + 1}: feature code must not reference Source. '
+            'directly (see CLAUDE.md canonical enums): ${rawLine.trim()}',
+          );
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason: 'FoodEntryType and Source are orthogonal. Features must '
+            'not construct Source values raw. Violations:\n'
             '${violations.join('\n')}',
       );
     });

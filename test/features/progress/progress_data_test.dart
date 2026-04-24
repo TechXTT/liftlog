@@ -5,7 +5,7 @@ import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/features/progress/progress_data.dart';
 
 BodyWeightLog _weight(DateTime t, double v, WeightUnit u) =>
-    BodyWeightLog(id: 1, timestamp: t, value: v, unit: u);
+    BodyWeightLog(id: 1, timestamp: t, value: v, unit: u, source: Source.userEntered);
 
 FoodEntry _food(DateTime t, int kcal) => FoodEntry(
       id: 1,
@@ -16,6 +16,7 @@ FoodEntry _food(DateTime t, int kcal) => FoodEntry(
       mealType: MealType.other,
       entryType: FoodEntryType.manual,
       note: null,
+      source: Source.userEntered,
     );
 
 WorkoutSession _session(int id, DateTime startedAt) => WorkoutSession(
@@ -23,6 +24,7 @@ WorkoutSession _session(int id, DateTime startedAt) => WorkoutSession(
       startedAt: startedAt,
       endedAt: null,
       note: null,
+      source: Source.userEntered,
     );
 
 ExerciseSet _set(int sessionId, WorkoutSetStatus status, {int order = 0}) =>
@@ -35,6 +37,7 @@ ExerciseSet _set(int sessionId, WorkoutSetStatus status, {int order = 0}) =>
       weightUnit: WeightUnit.kg,
       status: status,
       orderIndex: order,
+      source: Source.userEntered,
     );
 
 WorkoutSession _sessionWithEnd(int id, DateTime startedAt, DateTime? endedAt) =>
@@ -43,6 +46,7 @@ WorkoutSession _sessionWithEnd(int id, DateTime startedAt, DateTime? endedAt) =>
       startedAt: startedAt,
       endedAt: endedAt,
       note: null,
+      source: Source.userEntered,
     );
 
 FoodEntry _foodWithProtein(DateTime t, int kcal, double proteinG) => FoodEntry(
@@ -54,6 +58,7 @@ FoodEntry _foodWithProtein(DateTime t, int kcal, double proteinG) => FoodEntry(
       mealType: MealType.other,
       entryType: FoodEntryType.manual,
       note: null,
+      source: Source.userEntered,
     );
 
 void main() {

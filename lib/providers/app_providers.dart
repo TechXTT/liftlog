@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/database.dart';
 import '../data/repositories/body_weight_log_repository.dart';
+import '../data/repositories/exercise_repository.dart';
 import '../data/repositories/exercise_set_repository.dart';
 import '../data/repositories/food_entry_repository.dart';
 import '../data/repositories/workout_session_repository.dart';
@@ -26,4 +27,8 @@ final exerciseSetRepositoryProvider = Provider<ExerciseSetRepository>((ref) {
 
 final bodyWeightLogRepositoryProvider = Provider<BodyWeightLogRepository>((ref) {
   return BodyWeightLogRepository(ref.watch(appDatabaseProvider));
+});
+
+final exerciseRepositoryProvider = Provider<ExerciseRepository>((ref) {
+  return ExerciseRepository(ref.watch(appDatabaseProvider));
 });
