@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/database.dart';
 import '../data/repositories/body_weight_log_repository.dart';
+import '../data/repositories/daily_target_repository.dart';
 import '../data/repositories/exercise_repository.dart';
 import '../data/repositories/exercise_set_repository.dart';
 import '../data/repositories/food_entry_repository.dart';
@@ -42,6 +43,10 @@ final exerciseRepositoryProvider = Provider<ExerciseRepository>((ref) {
 
 final routineRepositoryProvider = Provider<RoutineRepository>((ref) {
   return RoutineRepository(ref.watch(appDatabaseProvider));
+});
+
+final dailyTargetRepositoryProvider = Provider<DailyTargetRepository>((ref) {
+  return DailyTargetRepository(ref.watch(appDatabaseProvider));
 });
 
 /// HealthKit façade provider (issue #43).

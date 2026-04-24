@@ -21,7 +21,8 @@ The format is designed to be machine-readable first. snake_case keys match the D
       "workout_sessions": 6,
       "exercise_sets": 71,
       "routines": 3,
-      "routine_exercises": 12
+      "routine_exercises": 12,
+      "daily_targets": 2
     },
     "note": "All arrays below are user-entered rows exactly as stored. Daily totals, weight deltas, weekly workout volumes, and other summaries are derived by the app at read time and intentionally not included."
   },
@@ -85,6 +86,16 @@ The format is designed to be machine-readable first. snake_case keys match the D
       "target_weight": 80.0,
       "target_weight_unit": "kg"
     }
+  ],
+  "daily_targets": [
+    {
+      "id": 1,
+      "kcal": 2000,
+      "protein_g": 140.0,
+      "effective_from": "2026-04-01T00:00:00.000Z",
+      "created_at": "2026-04-01T09:00:00.000Z",
+      "source": "userEntered"
+    }
   ]
 }
 ```
@@ -125,6 +136,19 @@ Line items on a routine (schema v4, issue #52). Each row pairs a routine with an
 | `target_reps` | int \| null | |
 | `target_weight` | double \| null | |
 | `target_weight_unit` | enum string \| null | `WeightUnit.name`; `null` if the routine doesn't prescribe a weight (bodyweight or reps-only). |
+
+### `daily_targets`
+
+Daily kcal + protein goals, keyed by `effective_from` (schema v5, issue #59 — E5 kickoff). Targets are historical: every edit adds a new row rather than mutating an existing one, so the `activeOn(day)` lookup always returns the target the user committed to at that point in time.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | int | Primary key. |
+| `kcal` | int | Required, zero or positive. |
+| `protein_g` | double | Required, zero or positive. |
+| `effective_from` | ISO 8601 UTC string | The day the target takes effect. The form stores midnight in the user's local zone, serialized as UTC — importers that care about day-boundary fidelity should re-round to the destination device's local midnight. |
+| `created_at` | ISO 8601 UTC string | When the user actually tapped Save. May be after `effective_from` for back-dated targets, or at a different time-of-day on the same day. |
+| `source` | enum string | `Source.name`. See [enum reference](#enum-reference). Defaults to `"userEntered"`. |
 
 ## Enum reference
 
@@ -186,7 +210,7 @@ If any of those ever start appearing in the export, that's a regression — ever
 
 ## Stability
 
-- `format_version` bumps **when a breaking shape change lands** — a removed entity, a renamed key, a changed serialization of an existing field, or any change that would make an older importer read the file wrong. **Additive snake_case keys do not require a bump:** old importers ignore unknown keys, new importers treat missing keys as empty / null. That's the rule that let the S5.1 `source` column addition and the S5.5 `routines` / `routine_exercises` sections both ship at `format_version: "1"`.
+- `format_version` bumps **when a breaking shape change lands** — a removed entity, a renamed key, a changed serialization of an existing field, or any change that would make an older importer read the file wrong. **Additive snake_case keys do not require a bump:** old importers ignore unknown keys, new importers treat missing keys as empty / null. That's the rule that let the S5.1 `source` column addition, the S5.5 `routines` / `routine_exercises` sections, and the S6.1 `daily_targets` section all ship at `format_version: "1"`.
 - `schema_version` tracks the Drift DB schema (`AppDatabase.schemaVersion`). It changes independently of `format_version`: a schema migration that doesn't surface new user-visible columns does not require a `format_version` bump.
 - `app_version` is informational. It matches the `pubspec.yaml` version at build time.
 

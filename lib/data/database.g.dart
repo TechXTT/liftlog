@@ -3097,6 +3097,415 @@ class RoutineExercisesCompanion extends UpdateCompanion<RoutineExercise> {
   }
 }
 
+class $DailyTargetsTable extends DailyTargets
+    with TableInfo<$DailyTargetsTable, DailyTarget> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DailyTargetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _kcalMeta = const VerificationMeta('kcal');
+  @override
+  late final GeneratedColumn<int> kcal = GeneratedColumn<int>(
+    'kcal',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _proteinGMeta = const VerificationMeta(
+    'proteinG',
+  );
+  @override
+  late final GeneratedColumn<double> proteinG = GeneratedColumn<double>(
+    'protein_g',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _effectiveFromMeta = const VerificationMeta(
+    'effectiveFrom',
+  );
+  @override
+  late final GeneratedColumn<DateTime> effectiveFrom =
+      GeneratedColumn<DateTime>(
+        'effective_from',
+        aliasedName,
+        false,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<Source, String> source =
+      GeneratedColumn<String>(
+        'source',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('userEntered'),
+      ).withConverter<Source>($DailyTargetsTable.$convertersource);
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    kcal,
+    proteinG,
+    effectiveFrom,
+    createdAt,
+    source,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'daily_targets';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DailyTarget> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('kcal')) {
+      context.handle(
+        _kcalMeta,
+        kcal.isAcceptableOrUnknown(data['kcal']!, _kcalMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kcalMeta);
+    }
+    if (data.containsKey('protein_g')) {
+      context.handle(
+        _proteinGMeta,
+        proteinG.isAcceptableOrUnknown(data['protein_g']!, _proteinGMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_proteinGMeta);
+    }
+    if (data.containsKey('effective_from')) {
+      context.handle(
+        _effectiveFromMeta,
+        effectiveFrom.isAcceptableOrUnknown(
+          data['effective_from']!,
+          _effectiveFromMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_effectiveFromMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DailyTarget map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DailyTarget(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      kcal: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}kcal'],
+      )!,
+      proteinG: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}protein_g'],
+      )!,
+      effectiveFrom: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}effective_from'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      source: $DailyTargetsTable.$convertersource.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}source'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $DailyTargetsTable createAlias(String alias) {
+    return $DailyTargetsTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<Source, String, String> $convertersource =
+      const EnumNameConverter<Source>(Source.values);
+}
+
+class DailyTarget extends DataClass implements Insertable<DailyTarget> {
+  final int id;
+  final int kcal;
+  final double proteinG;
+  final DateTime effectiveFrom;
+  final DateTime createdAt;
+  final Source source;
+  const DailyTarget({
+    required this.id,
+    required this.kcal,
+    required this.proteinG,
+    required this.effectiveFrom,
+    required this.createdAt,
+    required this.source,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['kcal'] = Variable<int>(kcal);
+    map['protein_g'] = Variable<double>(proteinG);
+    map['effective_from'] = Variable<DateTime>(effectiveFrom);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    {
+      map['source'] = Variable<String>(
+        $DailyTargetsTable.$convertersource.toSql(source),
+      );
+    }
+    return map;
+  }
+
+  DailyTargetsCompanion toCompanion(bool nullToAbsent) {
+    return DailyTargetsCompanion(
+      id: Value(id),
+      kcal: Value(kcal),
+      proteinG: Value(proteinG),
+      effectiveFrom: Value(effectiveFrom),
+      createdAt: Value(createdAt),
+      source: Value(source),
+    );
+  }
+
+  factory DailyTarget.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DailyTarget(
+      id: serializer.fromJson<int>(json['id']),
+      kcal: serializer.fromJson<int>(json['kcal']),
+      proteinG: serializer.fromJson<double>(json['proteinG']),
+      effectiveFrom: serializer.fromJson<DateTime>(json['effectiveFrom']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      source: $DailyTargetsTable.$convertersource.fromJson(
+        serializer.fromJson<String>(json['source']),
+      ),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'kcal': serializer.toJson<int>(kcal),
+      'proteinG': serializer.toJson<double>(proteinG),
+      'effectiveFrom': serializer.toJson<DateTime>(effectiveFrom),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'source': serializer.toJson<String>(
+        $DailyTargetsTable.$convertersource.toJson(source),
+      ),
+    };
+  }
+
+  DailyTarget copyWith({
+    int? id,
+    int? kcal,
+    double? proteinG,
+    DateTime? effectiveFrom,
+    DateTime? createdAt,
+    Source? source,
+  }) => DailyTarget(
+    id: id ?? this.id,
+    kcal: kcal ?? this.kcal,
+    proteinG: proteinG ?? this.proteinG,
+    effectiveFrom: effectiveFrom ?? this.effectiveFrom,
+    createdAt: createdAt ?? this.createdAt,
+    source: source ?? this.source,
+  );
+  DailyTarget copyWithCompanion(DailyTargetsCompanion data) {
+    return DailyTarget(
+      id: data.id.present ? data.id.value : this.id,
+      kcal: data.kcal.present ? data.kcal.value : this.kcal,
+      proteinG: data.proteinG.present ? data.proteinG.value : this.proteinG,
+      effectiveFrom: data.effectiveFrom.present
+          ? data.effectiveFrom.value
+          : this.effectiveFrom,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      source: data.source.present ? data.source.value : this.source,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DailyTarget(')
+          ..write('id: $id, ')
+          ..write('kcal: $kcal, ')
+          ..write('proteinG: $proteinG, ')
+          ..write('effectiveFrom: $effectiveFrom, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('source: $source')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, kcal, proteinG, effectiveFrom, createdAt, source);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DailyTarget &&
+          other.id == this.id &&
+          other.kcal == this.kcal &&
+          other.proteinG == this.proteinG &&
+          other.effectiveFrom == this.effectiveFrom &&
+          other.createdAt == this.createdAt &&
+          other.source == this.source);
+}
+
+class DailyTargetsCompanion extends UpdateCompanion<DailyTarget> {
+  final Value<int> id;
+  final Value<int> kcal;
+  final Value<double> proteinG;
+  final Value<DateTime> effectiveFrom;
+  final Value<DateTime> createdAt;
+  final Value<Source> source;
+  const DailyTargetsCompanion({
+    this.id = const Value.absent(),
+    this.kcal = const Value.absent(),
+    this.proteinG = const Value.absent(),
+    this.effectiveFrom = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.source = const Value.absent(),
+  });
+  DailyTargetsCompanion.insert({
+    this.id = const Value.absent(),
+    required int kcal,
+    required double proteinG,
+    required DateTime effectiveFrom,
+    required DateTime createdAt,
+    this.source = const Value.absent(),
+  }) : kcal = Value(kcal),
+       proteinG = Value(proteinG),
+       effectiveFrom = Value(effectiveFrom),
+       createdAt = Value(createdAt);
+  static Insertable<DailyTarget> custom({
+    Expression<int>? id,
+    Expression<int>? kcal,
+    Expression<double>? proteinG,
+    Expression<DateTime>? effectiveFrom,
+    Expression<DateTime>? createdAt,
+    Expression<String>? source,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (kcal != null) 'kcal': kcal,
+      if (proteinG != null) 'protein_g': proteinG,
+      if (effectiveFrom != null) 'effective_from': effectiveFrom,
+      if (createdAt != null) 'created_at': createdAt,
+      if (source != null) 'source': source,
+    });
+  }
+
+  DailyTargetsCompanion copyWith({
+    Value<int>? id,
+    Value<int>? kcal,
+    Value<double>? proteinG,
+    Value<DateTime>? effectiveFrom,
+    Value<DateTime>? createdAt,
+    Value<Source>? source,
+  }) {
+    return DailyTargetsCompanion(
+      id: id ?? this.id,
+      kcal: kcal ?? this.kcal,
+      proteinG: proteinG ?? this.proteinG,
+      effectiveFrom: effectiveFrom ?? this.effectiveFrom,
+      createdAt: createdAt ?? this.createdAt,
+      source: source ?? this.source,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (kcal.present) {
+      map['kcal'] = Variable<int>(kcal.value);
+    }
+    if (proteinG.present) {
+      map['protein_g'] = Variable<double>(proteinG.value);
+    }
+    if (effectiveFrom.present) {
+      map['effective_from'] = Variable<DateTime>(effectiveFrom.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(
+        $DailyTargetsTable.$convertersource.toSql(source.value),
+      );
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DailyTargetsCompanion(')
+          ..write('id: $id, ')
+          ..write('kcal: $kcal, ')
+          ..write('proteinG: $proteinG, ')
+          ..write('effectiveFrom: $effectiveFrom, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('source: $source')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3111,6 +3520,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $RoutineExercisesTable routineExercises = $RoutineExercisesTable(
     this,
   );
+  late final $DailyTargetsTable dailyTargets = $DailyTargetsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3123,6 +3533,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     bodyWeightLogs,
     routines,
     routineExercises,
+    dailyTargets,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -5592,6 +6003,222 @@ typedef $$RoutineExercisesTableProcessedTableManager =
       RoutineExercise,
       PrefetchHooks Function({bool routineId, bool exerciseId})
     >;
+typedef $$DailyTargetsTableCreateCompanionBuilder =
+    DailyTargetsCompanion Function({
+      Value<int> id,
+      required int kcal,
+      required double proteinG,
+      required DateTime effectiveFrom,
+      required DateTime createdAt,
+      Value<Source> source,
+    });
+typedef $$DailyTargetsTableUpdateCompanionBuilder =
+    DailyTargetsCompanion Function({
+      Value<int> id,
+      Value<int> kcal,
+      Value<double> proteinG,
+      Value<DateTime> effectiveFrom,
+      Value<DateTime> createdAt,
+      Value<Source> source,
+    });
+
+class $$DailyTargetsTableFilterComposer
+    extends Composer<_$AppDatabase, $DailyTargetsTable> {
+  $$DailyTargetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get kcal => $composableBuilder(
+    column: $table.kcal,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get proteinG => $composableBuilder(
+    column: $table.proteinG,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get effectiveFrom => $composableBuilder(
+    column: $table.effectiveFrom,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<Source, Source, String> get source =>
+      $composableBuilder(
+        column: $table.source,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+}
+
+class $$DailyTargetsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DailyTargetsTable> {
+  $$DailyTargetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get kcal => $composableBuilder(
+    column: $table.kcal,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get proteinG => $composableBuilder(
+    column: $table.proteinG,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get effectiveFrom => $composableBuilder(
+    column: $table.effectiveFrom,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DailyTargetsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DailyTargetsTable> {
+  $$DailyTargetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get kcal =>
+      $composableBuilder(column: $table.kcal, builder: (column) => column);
+
+  GeneratedColumn<double> get proteinG =>
+      $composableBuilder(column: $table.proteinG, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get effectiveFrom => $composableBuilder(
+    column: $table.effectiveFrom,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<Source, String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+}
+
+class $$DailyTargetsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DailyTargetsTable,
+          DailyTarget,
+          $$DailyTargetsTableFilterComposer,
+          $$DailyTargetsTableOrderingComposer,
+          $$DailyTargetsTableAnnotationComposer,
+          $$DailyTargetsTableCreateCompanionBuilder,
+          $$DailyTargetsTableUpdateCompanionBuilder,
+          (
+            DailyTarget,
+            BaseReferences<_$AppDatabase, $DailyTargetsTable, DailyTarget>,
+          ),
+          DailyTarget,
+          PrefetchHooks Function()
+        > {
+  $$DailyTargetsTableTableManager(_$AppDatabase db, $DailyTargetsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DailyTargetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DailyTargetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DailyTargetsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> kcal = const Value.absent(),
+                Value<double> proteinG = const Value.absent(),
+                Value<DateTime> effectiveFrom = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<Source> source = const Value.absent(),
+              }) => DailyTargetsCompanion(
+                id: id,
+                kcal: kcal,
+                proteinG: proteinG,
+                effectiveFrom: effectiveFrom,
+                createdAt: createdAt,
+                source: source,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int kcal,
+                required double proteinG,
+                required DateTime effectiveFrom,
+                required DateTime createdAt,
+                Value<Source> source = const Value.absent(),
+              }) => DailyTargetsCompanion.insert(
+                id: id,
+                kcal: kcal,
+                proteinG: proteinG,
+                effectiveFrom: effectiveFrom,
+                createdAt: createdAt,
+                source: source,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DailyTargetsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DailyTargetsTable,
+      DailyTarget,
+      $$DailyTargetsTableFilterComposer,
+      $$DailyTargetsTableOrderingComposer,
+      $$DailyTargetsTableAnnotationComposer,
+      $$DailyTargetsTableCreateCompanionBuilder,
+      $$DailyTargetsTableUpdateCompanionBuilder,
+      (
+        DailyTarget,
+        BaseReferences<_$AppDatabase, $DailyTargetsTable, DailyTarget>,
+      ),
+      DailyTarget,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -5610,4 +6237,6 @@ class $AppDatabaseManager {
       $$RoutinesTableTableManager(_db, _db.routines);
   $$RoutineExercisesTableTableManager get routineExercises =>
       $$RoutineExercisesTableTableManager(_db, _db.routineExercises);
+  $$DailyTargetsTableTableManager get dailyTargets =>
+      $$DailyTargetsTableTableManager(_db, _db.dailyTargets);
 }

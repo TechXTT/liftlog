@@ -22,7 +22,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:liftlog_app/data/database.dart';
+import 'package:liftlog_app/data/repositories/daily_target_repository.dart';
 import 'package:liftlog_app/features/history/history_screen.dart';
+import 'package:liftlog_app/features/settings/daily_target_form_screen.dart';
 import 'package:liftlog_app/features/settings/sections/about_section.dart';
 import 'package:liftlog_app/features/settings/settings_screen.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
@@ -65,13 +67,19 @@ void main() {
     child: const MaterialApp(home: SettingsScreen()),
   );
 
-  testWidgets('renders all three section headers', (tester) async {
+  testWidgets('renders all four section headers', (tester) async {
     await tester.pumpWidget(
       settingsApp(healthSource: HealthSourceFake.notAuthorized()),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('HealthKit'), findsOneWidget);
+    expect(find.text('Daily targets'), findsOneWidget);
+    // `Data` and `About` are below the fold on a 600-pt test viewport
+    // after the Daily targets section landed — drag the ListView up
+    // so they render.
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
     expect(find.text('Data'), findsOneWidget);
     expect(find.text('About'), findsOneWidget);
   });
@@ -107,6 +115,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // Scroll so the Data section's tiles render (they sit below the
+    // Daily targets section now).
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+
     expect(find.text('Export all data (JSON)'), findsOneWidget);
     expect(
       find.text('Import all data (replaces current data)'),
@@ -118,6 +131,12 @@ void main() {
     await tester.pumpWidget(
       settingsApp(healthSource: HealthSourceFake.notAuthorized()),
     );
+    await tester.pumpAndSettle();
+
+    // After the Daily targets section landed the About section sits
+    // below the fold on the test viewport — drag the ListView up so
+    // the AboutSection lazily builds its children.
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
     await tester.pumpAndSettle();
 
     // Matches either the "1.0.0+1" (version + build) or the bare "1.0.0"
@@ -135,6 +154,133 @@ void main() {
     expect(find.text('Bundle id: dev.techxtt.liftlogApp'), findsOneWidget);
     expect(find.textContaining('Schema version: v'), findsOneWidget);
   });
+
+  testWidgets(
+    'Daily targets: no target → "No target set yet" + Edit target CTA',
+    (tester) async {
+      await tester.pumpWidget(
+        settingsApp(healthSource: HealthSourceFake.notAuthorized()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No target set yet'), findsOneWidget);
+      expect(find.text('Edit target'), findsOneWidget);
+      // No "Current:" prefix when there's no active target.
+      expect(find.textContaining('Current:'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Daily targets: active target renders "Current: ..." line',
+    (tester) async {
+      // Seed an active target that started on Apr 1 of the current year
+      // so the "since Apr 1" copy lines up deterministically for today.
+      final targetRepo = DailyTargetRepository(db);
+      final now = DateTime.now();
+      final startOfYear = DateTime(now.year, 4, 1);
+      await targetRepo.add(
+        DailyTargetsCompanion.insert(
+          kcal: 2000,
+          proteinG: 140,
+          effectiveFrom: startOfYear,
+          createdAt: startOfYear,
+        ),
+      );
+
+      await tester.pumpWidget(
+        settingsApp(healthSource: HealthSourceFake.notAuthorized()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Current: 2000 kcal · 140 g protein (since Apr 1)'),
+        findsOneWidget,
+      );
+      expect(find.text('No target set yet'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Daily targets: up to 3 previous targets render under Previous targets',
+    (tester) async {
+      final targetRepo = DailyTargetRepository(db);
+      final now = DateTime.now();
+      // One active + 4 historical → only 3 should surface under
+      // "Previous targets" (cap).
+      await targetRepo.add(
+        DailyTargetsCompanion.insert(
+          kcal: 1600,
+          proteinG: 100,
+          effectiveFrom: DateTime(now.year, 1, 1),
+          createdAt: DateTime(now.year, 1, 1),
+        ),
+      );
+      await targetRepo.add(
+        DailyTargetsCompanion.insert(
+          kcal: 1700,
+          proteinG: 110,
+          effectiveFrom: DateTime(now.year, 2, 1),
+          createdAt: DateTime(now.year, 2, 1),
+        ),
+      );
+      await targetRepo.add(
+        DailyTargetsCompanion.insert(
+          kcal: 1800,
+          proteinG: 120,
+          effectiveFrom: DateTime(now.year, 3, 1),
+          createdAt: DateTime(now.year, 3, 1),
+        ),
+      );
+      await targetRepo.add(
+        DailyTargetsCompanion.insert(
+          kcal: 1900,
+          proteinG: 130,
+          effectiveFrom: DateTime(now.year, 3, 15),
+          createdAt: DateTime(now.year, 3, 15),
+        ),
+      );
+      await targetRepo.add(
+        DailyTargetsCompanion.insert(
+          kcal: 2000,
+          proteinG: 140,
+          effectiveFrom: DateTime(now.year, 4, 1),
+          createdAt: DateTime(now.year, 4, 1),
+        ),
+      );
+
+      await tester.pumpWidget(
+        settingsApp(healthSource: HealthSourceFake.notAuthorized()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Previous targets'), findsOneWidget);
+      // Three newest-before-active rows (1900, 1800, 1700) render; the
+      // oldest (1600) is capped out.
+      expect(find.text('1900 kcal · 130 g protein'), findsOneWidget);
+      expect(find.text('1800 kcal · 120 g protein'), findsOneWidget);
+      expect(find.text('1700 kcal · 110 g protein'), findsOneWidget);
+      expect(find.text('1600 kcal · 100 g protein'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Daily targets: Edit target navigates to DailyTargetFormScreen',
+    (tester) async {
+      await tester.pumpWidget(
+        settingsApp(healthSource: HealthSourceFake.notAuthorized()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit target'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DailyTargetFormScreen), findsOneWidget);
+      expect(find.text('Set daily target'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 1));
+    },
+  );
 
   testWidgets(
       'History tab no longer shows Export/Import labels (moved to Settings)',
