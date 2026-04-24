@@ -47,6 +47,23 @@ class ExerciseRepository {
         ..limit(1))
       .getSingleOrNull();
 
+  /// Feature-facing convenience entry point for the set form's canonical
+  /// picker (issue #60).
+  ///
+  /// The arch guardrail `test/arch/data_access_boundary_test.dart` forbids
+  /// `lib/features/**` from referencing `Source.` directly — features must
+  /// receive `Source`-typed values from repositories, not construct them
+  /// raw. The set-form picker always inserts with `Source.userEntered`
+  /// (the user typed a new exercise name), so we expose a dedicated
+  /// wrapper that hides the enum from the call site. Delegates to
+  /// [addIfMissing] with `source: Source.userEntered`.
+  ///
+  /// Use this from feature code; use [addIfMissing] from data-layer
+  /// callers that need to declare a different provenance (e.g. the
+  /// v2→v3 seeding pass, future import flows).
+  Future<Exercise> addIfMissingUserEntered(String name) =>
+      addIfMissing(name, source: Source.userEntered);
+
   /// Inserts `name` if it isn't already present, then returns the row
   /// (either the existing one or the one just inserted).
   ///
