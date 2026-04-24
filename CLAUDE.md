@@ -3,7 +3,7 @@
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Wedge
-A simple personal Flutter app for tracking calories, protein, body metrics, and gym workouts with minimal friction. Single-user, founder-first, **iPhone-first**.
+A privacy-first, Apple-native personal fitness assistant. Ingests food, training, and HealthKit signals; surfaces opinionated, explainable options for what to do next. **Founder-first becoming a small-scale product** for a set of trusted paying users. iPhone + Apple Watch + iPadOS + HealthKit + CloudKit + StoreKit 2 + on-device Core ML.
 
 ## Before you implement anything
 1. Read the target GitHub issue on `TechXTT/liftlog` (acceptance criteria, scope in/out, enums).
@@ -11,23 +11,30 @@ A simple personal Flutter app for tracking calories, protein, body metrics, and 
 3. Read `vault/current_state.md` for where things stand today.
 4. Ask only if a core assumption blocks you. Otherwise pick the simplest reasonable default and note it in the PR body.
 
-## Non-goals (explicit, v1)
-- No social features, coaching marketplace, admin panel, marketing site.
-- No Android support in v1. Do not add Android-specific files, plugins, or platform code without explicit direction.
-- No wearable integrations in v1. Apple Watch is a **future** track — keep data models and app structure portable, but do not ship watch features.
-- No advanced AI features.
-- No cloud sync until local persistence is stable.
-- No barcode scanning or third-party nutrition API in v1.
-- No health or medical claims anywhere in copy or UI.
-- No paywall / subscription.
+## Non-goals (hard, v2.0)
+- No social features, leaderboards, coaching marketplace, influencer / content features.
+- No advertising.
+- No Android. No Web.
+- No non-Apple cloud (no AWS, GCP, Supabase, Firebase).
+- No custom auth (signed into iCloud = authenticated).
+- No third-party nutrition API (on-device Vision replaces it).
+- No health or medical claims.
+- No chatbot / free-text conversational AI. Coaching voice is parameterized templates, never a chat surface.
+- No human-coach-in-the-loop.
+- No marketing site, admin panel.
+- No free tier. Free install = read-only view + JSON import/export. No new entries without trial or subscription.
+- No multi-user shared CloudKit zones (trainer/client, couples) in v2.0.
 
-Promotion rule: moving an item out of this list into implementation scope requires an explicit founder update to this file.
+Promotion rule: moving an item out of this list requires an explicit founder update to this file.
 
-## Tech stack (actual)
+## Tech stack (v2.0)
 - Flutter 3.41.7 (stable), Dart 3.11.5.
 - Riverpod for state management.
-- Drift + SQLite for local persistence (via `path_provider`).
-- Target platform: **iOS only**. `flutter create --platforms=ios`.
+- Drift + SQLite for local cache. CloudKit is the source of truth on conflict.
+- HealthKit (read-only in E1; read+write later) via `health` package.
+- On-device Core ML / Vision / Speech / Foundation Models (E6, E7).
+- StoreKit 2 (E9) — on-device receipt validation, no server.
+- Target platforms: **iOS + watchOS + iPadOS, Apple-only.** Apple Developer Program membership required ($99/yr, approved 2026-04-24).
 - Signing: `DEVELOPMENT_TEAM = LQGYT7RS92`, bundle id `dev.techxtt.liftlogApp`.
 
 ## Deploy target
@@ -66,9 +73,17 @@ After `flutter build ios ...`, always `flutter clean` before a subsequent `flutt
 - **Delete flows must be explicit and confirmed.** Never delete logged entries without an explicit confirm step.
 - **Units must be defined clearly** at model, storage, and UI layer. Never mix kg/lb, cm/in, or kcal/kJ within a single flow. Never silently convert.
 - **Estimates must be visibly labeled** in the UI as estimates. Never present an estimated value as directly logged.
-- **Data source precedence:** `user_entered` > `saved_template` > `default`. Never invert.
 - **No data model changes without a migration.** Schema changes require an explicit Drift migration + a documented manual backup path (`vault/05 Architecture/Runbooks.md`).
 - **No hidden auto-adjustment of calorie / macro targets.**
+- **Provenance is a first-class column.** Every entity records its `Source` (`user_entered`, `saved_template`, `health_kit`, `photo_estimate`, `voice_estimate`, `barcode`, `derived`, `imported`). Never mix without a visible source badge. `FoodEntryType` stays semantic (meal categorization); `Source` is orthogonal provenance.
+- **Source precedence:** `user_entered` > `saved_template` > `health_kit` > `derived` > `imported`. Never invert.
+- **On-device-only intelligence.** No food / training / HK data leaves the device unencrypted. CloudKit E2E is the only sync path.
+- **Surface observations and tradeoffs. Never prescribe. Never infer a condition.** Every surfaced recommendation names the signal, offers at least two options, and ends with user agency. No single imperatives. Example: *"HRV has trended down 7 days. Options: cut Thursday bench volume ~20%, swap to technique work, or push through if you feel solid — your call."*
+- **Every recommendation exposes its inputs in a one-tap "why" view.** If a decision can't be explained from logged data, it doesn't ship. No black-box heuristics.
+- **Every decision is overridable.** No silent apply, no non-dismissable change. Override preserves the original proposal for audit.
+- **Signal, not judgment.** Copy reports what happened, never what the user did wrong. "Your HRV is trending down" not "You didn't recover."
+- **Sync-off is pause, not fork.** Turning CloudKit off preserves the local DB and stops pushing. Re-enabling resumes from the existing local state; CloudKit change tokens handle merging. Never a dual-copy reconciliation.
+- **Entitlement never blocks access to a user's own logged data or the core v1 tracking loop.** A lapsed subscription preserves the full local DB, keeps creating, editing, deleting, importing, and exporting entries working, and pauses everything v2 adds on top: CloudKit sync, coaching voice, adaptive programming, Watch sync, HealthKit writes, and any future gated feature. Data is never deleted or obscured. The app degrades to a v1-equivalent local tracker, not a read-only museum.
 
 ## Number + unit formatting
 - Numbers rendered next to a unit MUST go through `lib/ui/formatters.dart` (`formatKcal`, `formatGrams`, `formatWeight`).
@@ -80,22 +95,44 @@ Enumerate every value when adding a `switch`/dropdown — no fallthrough default
 
 - Meal type: `breakfast`, `lunch`, `dinner`, `snack`, `other`
 - Goal type: `fat_loss`, `maintenance`, `muscle_gain` (not in UI yet; reserved)
-- Entry type: `manual`, `saved_food`, `barcode`, `estimate` (only `manual` / `estimate` exposed in UI today)
+- Entry type (meal categorization only): `manual`, `saved_food`, `barcode`, `estimate`
 - Units: `kg`, `lb`, `cm`, `in`, `kcal` (only `kg` / `lb` / `kcal` used today)
 - Workout set status: `planned`, `completed`, `skipped`
-- Data source precedence: `user_entered` > `saved_template` > `default`
+- **Source (orthogonal to Entry type):** `user_entered`, `saved_template`, `health_kit`, `photo_estimate`, `voice_estimate`, `barcode`, `derived`, `imported`
+- **Entitlement state (StoreKit):** `active`, `in_trial`, `lapsed`, `grandfathered`, `never_subscribed`
+
+## Entitlement state — behavioral policy
+
+| State | Core v1 loop (create/edit/delete food+weight+workouts) | JSON export | JSON import | v2 features |
+|---|---|---|---|---|
+| `never_subscribed` | **No new entries.** Import allowed as one-time restore. | ✓ | ✓ | paused |
+| `in_trial` | ✓ | ✓ | ✓ | ✓ |
+| `active` | ✓ | ✓ | ✓ | ✓ |
+| `grandfathered` | ✓ | ✓ | ✓ | ✓ |
+| `lapsed` | ✓ (full v1 loop, local-only) | ✓ | ✓ | **paused** (CloudKit sync, coaching voice, adaptive programming, Watch sync, HealthKit writes) |
+
+Import is treated as restoration, not creation. It is available in every state that can read data.
+
+Key rule: the paywall gates **v2 adds**, not the v1 core. A lapsed subscription degrades the app to v1-equivalent behavior; it does not create a read-only state. A never-trialed fresh install blocks *new* entries (trial-or-subscribe to start logging) but allows one-time JSON restore so a user can evaluate the app against a prior backup.
 
 ## Platform-risk guardrails
 - All persistence writes for logged data must be awaited; errors must surface to the UI. No fire-and-forget writes.
 - Assume iOS storage can fail or be revoked by the OS. Detect, report, and halt — do not silently fall back to in-memory state.
 - Before any schema migration: document the manual backup path in `vault/05 Architecture/Runbooks.md` and ensure the migration is reversible or the backup restorable.
 
-## Apple Watch — architectural caution (no v1 features)
-Kept portable now; cheaper than retrofit later.
-- Keep models pure Dart. No UIKit types, no `BuildContext`, no phone-screen-derived values in `lib/data/**`.
-- Drift repositories are the **only** data-access boundary. UI does not call `db.select(...)` directly.
-- Every `watch*()` on a repo has a `list*()` one-shot sibling (keeps a future non-UI consumer honest).
-- Do not add WatchConnectivity, watchOS targets, or companion app code.
+## Apple Watch — companion target (E4)
+- Keep models pure Dart. No UIKit types, no `BuildContext`, no phone-screen-derived values in `lib/data/**` or `lib/sources/**`.
+- Drift + `lib/sources/**` are the **only** data-access boundaries. Features never touch them directly.
+- Every `watch*()` on a repo has a `list*()` one-shot sibling (Watch + widgets depend on one-shots).
+- Watch read-state comes from CloudKit-synced data; Watch is not authoritative for edits.
+
+## Platform-bridged sources (`lib/sources/`)
+HealthKit, Vision, Speech, StoreKit, and any future Apple-only data source lives under `lib/sources/<name>/`.
+- Bridge code (method channels / Flutter plugins) lives only in this layer.
+- Pure-Dart interfaces are exposed to the rest of the app.
+- Feature code (`lib/features/`) never imports from `lib/sources/<name>/` implementation files — only from the public interface façade (same rule that applies to `lib/data/`).
+- Arch guardrail (`test/arch/data_access_boundary_test.dart`) enforces this.
+- Entitlement state from StoreKit lives in CloudKit zone metadata, not in Drift.
 
 ## Mobile viewport / device assumptions
 - iPhone 15 (portrait). Logical viewport 393×852. Touch targets ≥ 44 pt.

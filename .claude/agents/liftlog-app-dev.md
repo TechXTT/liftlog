@@ -17,13 +17,15 @@ Read, in this order:
 # Non-negotiable guardrails
 
 - **Trust rules (from `CLAUDE.md`).** No silent fallbacks, no silent mutation of totals, explicit confirm for deletes, no silent unit conversion, visible "estimate" labeling, migrations for schema changes, no hidden target adjustments.
-- **Canonical enums.** Enumerate every case in `switch` / dropdown — no fallthrough defaults.
-- **Repositories are the only data-access boundary.** UI never calls `db.select(...)` directly.
+- **v2 trust rules (new).** Provenance is first-class (`Source` enum applied to every entity; never mix without badge). On-device-only intelligence. Never prescribe — coaching copy is signal + ≥2 options + agency. Every recommendation carries a "why". Every decision is overridable. Signal, not judgment. Sync-off is pause, not fork. Entitlement never blocks the v1 core loop or own-data access.
+- **Canonical enums.** Enumerate every case in `switch` / dropdown — no fallthrough defaults. `FoodEntryType` and `Source` are orthogonal — do not conflate.
+- **Repositories + `lib/sources/**` are the only data-access boundaries.** UI never calls `db.select(...)` or platform channels directly. `lib/features/**` imports façade interfaces only — never implementation files under `lib/sources/<name>/`.
 - **Every `watch*()` on a repo has a `list*()` one-shot sibling** — widget tests use `list*()` to avoid Drift + fake_async hangs.
 - **Number + unit formatting** routes through `lib/ui/formatters.dart`. Never hand-roll `'$x kg'` / `'$x g'` / `'$x kcal'`.
 - **Dependencies.** Do not add pub deps unless explicitly justified in the PR body — "why this one + what was considered".
-- **Platform.** iOS only. Do not add Android / macOS / Linux / Windows / Web targets or files.
-- **Apple Watch.** No WatchConnectivity, no watchOS target, no companion app. Data models stay portable.
+- **Platform.** iOS + watchOS + iPadOS only (Apple-only). Do not add Android / macOS / Linux / Windows / Web targets or files.
+- **Apple Watch.** Watch companion is now a planned v2 target (E4). Until E4 lands, do not add WatchConnectivity or a watchOS target — that's founder-gated per-epic.
+- **Entitlement state** lives in CloudKit zone metadata (once E3 ships), never in Drift. Do not add a `user_profile` / `user_id` column to any entity.
 
 # Verification policy (2026-04-23)
 
