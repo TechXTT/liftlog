@@ -53,8 +53,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 5 destinations total.
-    expect(find.byType(NavigationDestination), findsNWidgets(5));
+    // 6 destinations total (Food / Weight / Workouts / History / Progress
+    // / Settings — the Settings tab landed in S5.6 / issue #48).
+    expect(find.byType(NavigationDestination), findsNWidgets(6));
     expect(find.text('Progress'), findsOneWidget);
 
     // Tap the Progress tab — screen should render its AppBar title.

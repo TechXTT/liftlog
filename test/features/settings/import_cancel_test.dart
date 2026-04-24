@@ -1,12 +1,14 @@
 // Widget test: cancelling the first destructive confirm on the Import
 // flow must leave the DB unchanged.
 //
-// Scope: the issue (#41) calls out "widget tests cover Cancel at each
-// stage leaving DB unchanged". We can't exercise the iOS file-picker in
-// a widget test (it's a platform channel — MissingPluginException), so
-// we verify the dialog branch of the UI instead. Specifically, we
-// construct the destructive confirm directly (same helper the section
-// uses) and confirm Cancel returns false without any DB side effect.
+// Originally written against the History tab (issue #41). Moved to
+// `test/features/settings/` in S5.6 (issue #48) when the Export/Import
+// entry points moved into the Settings tab. The implementation is
+// unchanged: we can't exercise the iOS file-picker in a widget test
+// (it's a platform channel — MissingPluginException), so we verify the
+// dialog branch of the UI instead. Specifically, we construct the
+// destructive confirm directly (same helper the section uses) and
+// confirm Cancel returns false without any DB side effect.
 //
 // This keeps the test within the arch guardrails (UI layer only talks
 // to repositories / helpers) and doesn't require mocking the file

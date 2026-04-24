@@ -4,6 +4,7 @@ import '../features/body_weight/body_weight_screen.dart';
 import '../features/food/food_log_screen.dart';
 import '../features/history/history_screen.dart';
 import '../features/progress/progress_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/workouts/workout_list_screen.dart';
 
 class RootShell extends StatefulWidget {
@@ -22,6 +23,7 @@ class _RootShellState extends State<RootShell> {
     WorkoutListScreen(),
     HistoryScreen(),
     ProgressScreen(),
+    SettingsScreen(),
   ];
 
   @override
@@ -56,6 +58,11 @@ class _RootShellState extends State<RootShell> {
             icon: Icon(Icons.show_chart_outlined),
             selectedIcon: Icon(Icons.show_chart),
             label: 'Progress',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
           ),
         ],
       ),
