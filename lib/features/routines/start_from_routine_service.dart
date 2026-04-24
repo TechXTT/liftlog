@@ -53,19 +53,37 @@ class StartFromRoutineService {
   ///
   /// [now] is injectable so widget tests can assert deterministic
   /// `startedAt` values.
-  Future<int> start(int routineId, {required DateTime now}) async {
+  ///
+  /// [note] is the optional session-level note (trust rule: provenance
+  /// stays user-chosen; the caller may pre-populate from the routine's
+  /// `notes` column but the user can edit/clear before confirm). Empty
+  /// or whitespace-only strings are normalized to `null` at persistence
+  /// time so the `WorkoutSessions.note` column is never an empty string.
+  Future<int> start(
+    int routineId, {
+    required DateTime now,
+    String? note,
+  }) async {
+    final normalizedNote =
+        (note == null || note.trim().isEmpty) ? null : note;
     final lineItems = await _routineRepo.listExercises(routineId);
     if (lineItems.isEmpty) {
       // Empty routine → still create the session (user might want a
       // blank slate named by the routine), but seed no sets. Matches the
       // manual "Start workout" flow.
       return _sessionRepo.add(
-        WorkoutSessionsCompanion.insert(startedAt: now),
+        WorkoutSessionsCompanion.insert(
+          startedAt: now,
+          note: Value(normalizedNote),
+        ),
       );
     }
 
     final sessionId = await _sessionRepo.add(
-      WorkoutSessionsCompanion.insert(startedAt: now),
+      WorkoutSessionsCompanion.insert(
+        startedAt: now,
+        note: Value(normalizedNote),
+      ),
     );
 
     // Running global index across every exercise's sets, so the session

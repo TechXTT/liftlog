@@ -116,6 +116,10 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Start workout'));
       await tester.pumpAndSettle();
 
+      // Confirm dialog opens — tap Start to proceed without editing the note.
+      await tester.tap(find.widgetWithText(TextButton, 'Start'));
+      await tester.pumpAndSettle();
+
       // Navigation landed on WorkoutSessionScreen.
       expect(find.byType(WorkoutSessionScreen), findsOneWidget);
       // Routine detail replaced — back nav returns to Routines, not detail.
@@ -136,6 +140,92 @@ void main() {
       expect(sets.take(3).every((s) => s.exerciseId == benchId), isTrue);
       // Next 4 → Squat.
       expect(sets.skip(3).every((s) => s.exerciseId == squatId), isTrue);
+
+      await _drainDriftTimers(tester);
+    },
+  );
+
+  testWidgets(
+    'Start workout confirm dialog pre-populates from routine.notes and '
+    'persists on confirm',
+    (tester) async {
+      final id = await seedRoutine();
+
+      await tester.pumpWidget(_host(db, RoutineDetailScreen(routineId: id)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Start workout'));
+      await tester.pumpAndSettle();
+
+      // Dialog renders with the routine's notes pre-populated in the field.
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(
+        find.widgetWithText(TextField, 'Upper body'),
+        findsOneWidget,
+        reason: 'note field pre-populated from routines.notes',
+      );
+
+      // Edit the note before confirming.
+      await tester.enterText(find.byType(TextField), 'Starting strong');
+      await tester.tap(find.widgetWithText(TextButton, 'Start'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutSessionScreen), findsOneWidget);
+
+      final sessions = await sessionRepo.listAll();
+      expect(sessions, hasLength(1));
+      expect(sessions.single.note, 'Starting strong');
+
+      await _drainDriftTimers(tester);
+    },
+  );
+
+  testWidgets(
+    'Start workout confirm dialog Cancel aborts (no session created)',
+    (tester) async {
+      final id = await seedRoutine();
+
+      await tester.pumpWidget(_host(db, RoutineDetailScreen(routineId: id)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Start workout'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      // No navigation; no session; still on the detail screen.
+      expect(find.byType(WorkoutSessionScreen), findsNothing);
+      expect(find.byType(RoutineDetailScreen), findsOneWidget);
+      expect(await sessionRepo.listAll(), isEmpty);
+
+      await _drainDriftTimers(tester);
+    },
+  );
+
+  testWidgets(
+    'Start workout confirm dialog clearing the note persists null',
+    (tester) async {
+      final id = await seedRoutine();
+
+      await tester.pumpWidget(_host(db, RoutineDetailScreen(routineId: id)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Start workout'));
+      await tester.pumpAndSettle();
+
+      // Clear pre-populated note, then confirm.
+      await tester.enterText(find.byType(TextField), '');
+      await tester.tap(find.widgetWithText(TextButton, 'Start'));
+      await tester.pumpAndSettle();
+
+      final sessions = await sessionRepo.listAll();
+      expect(sessions, hasLength(1));
+      expect(
+        sessions.single.note,
+        isNull,
+        reason: 'empty string normalizes to null',
+      );
 
       await _drainDriftTimers(tester);
     },

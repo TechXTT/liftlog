@@ -47,6 +47,10 @@ class WorkoutSessionScreen extends ConsumerWidget {
             sessionAsync: session,
             onEndSession: () => _endSession(context, ref),
           ),
+          _NoteRow(
+            sessionAsync: session,
+            onEdit: (current) => _editNote(context, ref, current),
+          ),
           const Divider(height: 1),
           Expanded(
             child: sets.when(
@@ -107,6 +111,29 @@ class WorkoutSessionScreen extends ConsumerWidget {
         nextOrderIndex: count,
       ),
     ));
+  }
+
+  Future<void> _editNote(
+    BuildContext context,
+    WidgetRef ref,
+    String? current,
+  ) async {
+    final next = await showDialog<_NoteDialogResult>(
+      context: context,
+      builder: (ctx) => _NoteEditDialog(initial: current),
+    );
+    if (next == null) return; // Cancel or dismiss — no mutation.
+    if (!context.mounted) return;
+    try {
+      await ref
+          .read(workoutSessionRepositoryProvider)
+          .updateNote(sessionId, next.note);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save note: $e')),
+      );
+    }
   }
 
   Future<void> _endSession(BuildContext context, WidgetRef ref) async {
@@ -219,6 +246,113 @@ class _SessionHeader extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Text('Could not load workout: $err'),
       ),
+    );
+  }
+}
+
+/// Renders the session's note — or a "+ Add note" affordance when the
+/// column is null. Tapping either surface opens the edit dialog via the
+/// [onEdit] callback with the current note as its argument.
+class _NoteRow extends StatelessWidget {
+  const _NoteRow({required this.sessionAsync, required this.onEdit});
+
+  final AsyncValue<WorkoutSession?> sessionAsync;
+  final void Function(String? current) onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return sessionAsync.maybeWhen(
+      data: (s) {
+        if (s == null) return const SizedBox.shrink();
+        final note = s.note;
+        if (note == null || note.trim().isEmpty) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 16, 8),
+              child: TextButton.icon(
+                onPressed: () => onEdit(null),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add note'),
+              ),
+            ),
+          );
+        }
+        return InkWell(
+          onTap: () => onEdit(note),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+              note,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontStyle: FontStyle.italic,
+                    color: Theme.of(context).hintColor,
+                  ),
+            ),
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// Result from the note edit dialog. `null` return from `showDialog`
+/// means the user cancelled; a non-null result carries the new note
+/// (which may itself be `null` / empty if the user cleared the field).
+class _NoteDialogResult {
+  const _NoteDialogResult(this.note);
+  final String? note;
+}
+
+class _NoteEditDialog extends StatefulWidget {
+  const _NoteEditDialog({required this.initial});
+
+  final String? initial;
+
+  @override
+  State<_NoteEditDialog> createState() => _NoteEditDialogState();
+}
+
+class _NoteEditDialogState extends State<_NoteEditDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initial ?? '');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.initial == null ? 'Add note' : 'Edit note'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 4,
+        decoration: const InputDecoration(
+          hintText: 'Optional note for this workout',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context)
+              .pop(_NoteDialogResult(_controller.text)),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

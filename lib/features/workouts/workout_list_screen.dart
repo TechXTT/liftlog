@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -157,10 +158,26 @@ class WorkoutListScreen extends ConsumerWidget {
   }
 
   Future<void> _startSession(BuildContext context, WidgetRef ref) async {
+    // Ask for an optional note first — keeps the FAB's "+ tap → logging"
+    // rhythm while making `WorkoutSessions.note` reachable at creation.
+    // Cancel from the dialog aborts the whole start flow; empty-on-save
+    // persists with `note: null` (no note, not an empty string).
+    final result = await showDialog<_StartSessionResult>(
+      context: context,
+      builder: (ctx) => const _StartSessionDialog(),
+    );
+    if (result == null) return;
+    if (!context.mounted) return;
     final repo = ref.read(workoutSessionRepositoryProvider);
     try {
+      final note = result.note;
+      final normalized =
+          (note == null || note.trim().isEmpty) ? null : note;
       final id = await repo.add(
-        WorkoutSessionsCompanion.insert(startedAt: DateTime.now()),
+        WorkoutSessionsCompanion.insert(
+          startedAt: DateTime.now(),
+          note: Value(normalized),
+        ),
       );
       if (!context.mounted) return;
       Navigator.of(context).push(
@@ -209,6 +226,62 @@ class _SectionHeader extends StatelessWidget {
           fontWeight: FontWeight.w600,
         ),
       ),
+    );
+  }
+}
+
+/// Result from the Start Workout dialog. `null` return from `showDialog`
+/// means the user cancelled — no session is created. Non-null carries
+/// the optional note (may itself be `null` / empty).
+class _StartSessionResult {
+  const _StartSessionResult(this.note);
+  final String? note;
+}
+
+/// Pre-session dialog that asks for an optional note before creating the
+/// `WorkoutSession`. Kept deliberately lightweight — no date picker, no
+/// routine picker (start-from-routine has its own flow) — so the normal
+/// "tap Start, start logging" rhythm stays one confirm away.
+class _StartSessionDialog extends StatefulWidget {
+  const _StartSessionDialog();
+
+  @override
+  State<_StartSessionDialog> createState() => _StartSessionDialogState();
+}
+
+class _StartSessionDialogState extends State<_StartSessionDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Start workout'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 4,
+        decoration: const InputDecoration(
+          hintText: 'Optional note (leave blank to skip)',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context)
+              .pop(_StartSessionResult(_controller.text)),
+          child: const Text('Start'),
+        ),
+      ],
     );
   }
 }
