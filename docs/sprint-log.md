@@ -6,6 +6,41 @@ Format: one block per sprint. Newest first.
 
 ---
 
+## Sprint 7 — E3 custom CloudKit MethodChannel kickoff + UI polish (2026-04-25)
+
+**Merges shipped**
+- `5503e53` S7.1 (#69/PR #74) Custom CloudKit MethodChannel scaffolding (walking skeleton — `getAccountStatus()` + `lib/sources/cloudkit/` façade + `ios/Runner/CloudKit/` bridge) — Wave 1
+- `c688b09` S7.4 (#72/PR #75) Workout session notes UI (surfaces existing `WorkoutSession.note`; pre-fills from `Routines.notes` on start-from-routine) — Wave 1
+- `7765a9a` S7.2 (#70/PR #76) Typed CloudKit record save + fetch (`[typeTag, raw]` wire contract preserves Int/Double/DateTime/Bool fidelity) — Wave 2
+- `5e5f4ac` S7.5 (#73/PR #77) Group sets by exercise on session detail (LEFT OUTER JOIN on `exercises`; canonical-vs-legacy bucketing with "(legacy)" suffix) — Wave 2
+- `b137f0f` S7.3 (#71/PR #78) CloudKit record zones + zone-scoped record IDs (`ensureZoneExists` + `kLiftLogZoneName` + cross-zone isolation) — Wave 3
+
+**Tests after:** 427/427. +87 over Sprint 6 boundary (340).
+
+**Schema:** Unchanged (v5). No migrations this sprint.
+
+**Deps added:** none. All E3 work is custom Swift + Dart inside `lib/sources/cloudkit/` and `ios/Runner/CloudKit/`. The 2026-04-24 PIVOT decision (no `flutter_cloud_kit`) held cleanly through implementation.
+
+**Decisions recorded (Decision Log):** none new. Sprint 7 was straight execution against the spike's Sprint 7 issue skeleton (S7.1–S7.3 in spike numbering = issues #69/#70/#71). UI polish items (S7.4 / #72, S7.5 / #73) were scoped on shape day from Sprint 6 carry-overs.
+
+**Blockers + resolution:**
+- `isolation: "worktree"` failed at session start with "not in a git repository" despite the working tree being a real git repo. Fallback: sequential dispatch (one agent at a time) per existing Skills.md rule. Cost ~30% wall-clock vs. parallel-with-isolation; underlying race was structurally impossible since only one agent ever touched the tree at a time.
+- S7.3 first dispatch stalled on a per-account usage limit (~30s, zero work landed). Retried after limit reset; retry shipped cleanly on first CI. New Skills.md entry: "Sprint-1-agent usage-limit retry pattern."
+- No CI saga. All 5 PRs green on first CI attempt (3m35s–6m10s).
+
+**Epics state end-of-sprint:**
+- E1 HealthKit read — **COMPLETE** (since Sprint 6).
+- E2 Exercise + routines — **COMPLETE** (since Sprint 6); grouped-rendering polish landed S7.5.
+- E3 CloudKit — **foundation landed.** Custom MethodChannel walking-skeleton + typed record CRUD + record zones all shipped. Spike's S7.4 (batch + conflict) → S7.7 (entitlement toggle) carry to Sprint 8+.
+- E4 Watch — still blocked on E3 completion (spike's S7.5–S7.6 specifically: change feed + Drift↔CloudKit mappers).
+- E5 Daily targets — kicked off in S6.1 (Sprint 6); no new work this sprint.
+
+**Capacity read:** well-calibrated. 5 items in 3 sequential waves. No PR rolled CI more than once. Two new process learnings in Skills.md: `flutter analyze` exits non-zero on `info`-level lints; `dart format` reflows new code on first run (accept-and-commit). Both informed the Wave 2/3 subagent briefs at dispatch time, not retroactively.
+
+**Founder-side post-merge work (unblocks device-verification):** register `iCloud.dev.techxtt.liftlogApp` container in Apple Developer portal + confirm iCloud capability in Xcode → Signing & Capabilities. Steps in `vault/05 Architecture/Runbooks.md` § "CloudKit container setup". CI doesn't require this; only on-device runs do.
+
+---
+
 ## Sprint 6 — E1/E2 UI closeout + E5 kickoff + E3 spike (2026-04-24)
 
 **Merges shipped**
