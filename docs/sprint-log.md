@@ -6,6 +6,39 @@ Format: one block per sprint. Newest first.
 
 ---
 
+## Sprint 6 — E1/E2 UI closeout + E5 kickoff + E3 spike (2026-04-24)
+
+**Merges shipped**
+- `892b8d9` S6.4 (#62/PR #65) HK signal tiles on Progress — Wave 1
+- `735925e` S6.1 (#59/PR #66) Daily targets + remaining view, schema v4→v5 — Wave 2
+- `2bb993b` S6.2 (#60/PR #67) Exercise canonical picker (built-in `Autocomplete<T>`, no new dep) — Wave 3
+- `4e645e1` S6.3 (#61/PR #68) Routines UI + start-workout-from-routine — Wave 4
+
+**Spike (not merged):** PR #64 `spike/cloudkit-e3-viability` closed. Empirical finding: `flutter_cloud_kit 0.0.3` unsuitable (Map<String,String> write surface, 8 missing P0 primitives, Swift scope bugs). **Decision: PIVOT to custom CloudKit MethodChannel** in Sprint 7 (~1400–1850 LoC, 21–32 dev-days estimated).
+
+**Tests after:** 340/340.
+
+**Schema:** v4 → v5 (additive: `daily_targets`). Backup path documented pre-code.
+
+**Deps added:** none. Flutter's built-in `Autocomplete<T>` used for the exercise picker. `flutter_cloud_kit` evaluated on throwaway branch, rejected.
+
+**Decisions recorded (Decision Log):**
+- E3 deferred from Sprint 6 → Sprint 7 (spike first, then custom bridge).
+- E3 plugin choice: PIVOT to custom MethodChannel bridge.
+- Sprint 7 skeleton: 7 E3 issues + likely mix of UI polish items.
+
+**Blockers + resolution:** Wave 1 parallel-dispatch race — two subagents shared the same git working tree; one's branch-switch clobbered the other's uncommitted edits (recovered, but avoidable). Skills.md updated with a rule requiring `isolation: "worktree"` on every future parallel dispatch.
+
+**Epics state end-of-sprint:**
+- E1 HealthKit read — **COMPLETE** (plumbing + UI).
+- E2 Exercise + routines — **COMPLETE** (data + UI + start-from-routine flow).
+- E3 CloudKit — research done; custom bridge queued for Sprint 7.
+- E5 daily targets — kicked off (current-target + remaining view landed).
+
+**Capacity read:** well-calibrated. 5 items (4 production + 1 spike) in 4 waves. One process correction recorded; Sprint 7 tests the `isolation: "worktree"` rule.
+
+---
+
 ## Sprint 5 — E1 completion + E2 closeout (2026-04-24)
 
 **Merges shipped**
