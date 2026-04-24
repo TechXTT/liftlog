@@ -56,15 +56,17 @@ class HealthSourceImpl implements HealthSource {
     HealthDataType.SLEEP_LIGHT,
     HealthDataType.SLEEP_REM,
   ];
+  static const List<HealthDataType> _workoutTypes = [HealthDataType.WORKOUT];
 
   /// Union of every type we request at permission-dialog time. Requesting
   /// them together shows a single HealthKit permission sheet to the user
-  /// rather than four separate dialogs.
+  /// rather than five separate dialogs.
   static const List<HealthDataType> _allTypes = [
     ..._bodyWeightTypes,
     ..._hrvTypes,
     ..._restingHrTypes,
     ..._sleepTypes,
+    ..._workoutTypes,
   ];
 
   Future<void> _ensureConfigured() async {
@@ -239,6 +241,36 @@ class HealthSourceImpl implements HealthSource {
     required DateTime to,
   }) => _pollStream<HKSleepStageSample>(() => listSleep(from: from, to: to));
 
+  @override
+  Future<List<HKWorkoutSample>> listWorkouts({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    await _ensureConfigured();
+    if (!await _isAuthorizedFor(_workoutTypes)) return const [];
+
+    final points = await _plugin.getHealthDataFromTypes(
+      types: _workoutTypes,
+      startTime: from,
+      endTime: to,
+    );
+
+    final samples = <HKWorkoutSample>[];
+    for (final point in points) {
+      final sample = _toWorkoutSample(point);
+      if (sample != null) samples.add(sample);
+    }
+    // Newest-first by start time — matches the other list* methods.
+    samples.sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    return samples;
+  }
+
+  @override
+  Stream<List<HKWorkoutSample>> watchWorkouts({
+    required DateTime from,
+    required DateTime to,
+  }) => _pollStream<HKWorkoutSample>(() => listWorkouts(from: from, to: to));
+
   /// Shared poll-on-subscribe / poll-every-N / cancel-on-unsubscribe
   /// implementation used by every `watch*` method. Kept private so the
   /// shape is consistent across data kinds — they all share the 60s
@@ -333,6 +365,171 @@ class HealthSourceImpl implements HealthSource {
     );
   }
 
+  /// Maps a raw `HealthDataPoint` to `HKWorkoutSample`. Returns `null` if
+  /// the point isn't a WORKOUT type or doesn't carry a `WorkoutHealthValue`.
+  /// The activity-type bucket mapping is in [_mapHealthWorkoutType].
+  HKWorkoutSample? _toWorkoutSample(HealthDataPoint point) {
+    if (point.type != HealthDataType.WORKOUT) return null;
+    final value = point.value;
+    if (value is! WorkoutHealthValue) return null;
+    final type = _mapHealthWorkoutType(value.workoutActivityType);
+    return HKWorkoutSample(
+      sourceId: point.sourceId,
+      startedAt: point.dateFrom,
+      endedAt: point.dateTo,
+      type: type,
+      duration: point.dateTo.difference(point.dateFrom),
+    );
+  }
+
+  /// Maps the `health` package's `HealthWorkoutActivityType` into our
+  /// compact [HKWorkoutType] enum. Every value the package ships is
+  /// enumerated explicitly — no fallthrough default. Anything we don't
+  /// explicitly surface maps to [HKWorkoutType.other], which is the
+  /// explicit catch-all (not a silent fallback — see CLAUDE.md canonical
+  /// enums).
+  ///
+  /// Mapping rationale:
+  ///   TRADITIONAL_STRENGTH_TRAINING     → traditionalStrengthTraining
+  ///   FUNCTIONAL_STRENGTH_TRAINING      → functionalStrengthTraining
+  ///   CORE_TRAINING                     → coreTraining
+  ///   HIGH_INTENSITY_INTERVAL_TRAINING  → highIntensityIntervalTraining
+  ///   RUNNING, RUNNING_TREADMILL         → running
+  ///   WALKING, WALKING_TREADMILL         → walking
+  ///   BIKING, BIKING_STATIONARY          → cycling
+  ///     (iOS "CYCLING" is the same enum as BIKING — see the `health`
+  ///      package comment; no separate CYCLING value exists.)
+  ///   YOGA                              → yoga
+  ///   everything else                    → other
+  ///
+  /// STRENGTH_TRAINING (Android-only, unversioned) maps to
+  /// `traditionalStrengthTraining` — it's the closest v1 analog and lets a
+  /// future Android target reuse the bucket. The `other` catch-all would
+  /// hide what is unambiguously a strength workout from the lifter.
+  HKWorkoutType _mapHealthWorkoutType(HealthWorkoutActivityType type) {
+    return switch (type) {
+      // Strength training buckets — surfaced explicitly.
+      HealthWorkoutActivityType.TRADITIONAL_STRENGTH_TRAINING =>
+        HKWorkoutType.traditionalStrengthTraining,
+      HealthWorkoutActivityType.FUNCTIONAL_STRENGTH_TRAINING =>
+        HKWorkoutType.functionalStrengthTraining,
+      HealthWorkoutActivityType.CORE_TRAINING => HKWorkoutType.coreTraining,
+      HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING =>
+        HKWorkoutType.highIntensityIntervalTraining,
+      // Android-only "STRENGTH_TRAINING" is the closest analog to
+      // traditional strength training — bucket it there rather than
+      // hiding it under `other` where a lifter wouldn't see their own
+      // workout.
+      HealthWorkoutActivityType.STRENGTH_TRAINING =>
+        HKWorkoutType.traditionalStrengthTraining,
+      // Android WEIGHTLIFTING — same rationale.
+      HealthWorkoutActivityType.WEIGHTLIFTING =>
+        HKWorkoutType.traditionalStrengthTraining,
+
+      // Cardio buckets — surfaced explicitly.
+      HealthWorkoutActivityType.RUNNING => HKWorkoutType.running,
+      HealthWorkoutActivityType.RUNNING_TREADMILL => HKWorkoutType.running,
+      HealthWorkoutActivityType.WALKING => HKWorkoutType.walking,
+      HealthWorkoutActivityType.WALKING_TREADMILL => HKWorkoutType.walking,
+      HealthWorkoutActivityType.BIKING => HKWorkoutType.cycling,
+      HealthWorkoutActivityType.BIKING_STATIONARY => HKWorkoutType.cycling,
+      HealthWorkoutActivityType.YOGA => HKWorkoutType.yoga,
+
+      // Everything else — explicit `other` catch-all. Every value the
+      // `health` package ships is enumerated here so the analyzer flags
+      // a new value the day the package bumps.
+      HealthWorkoutActivityType.AMERICAN_FOOTBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.ARCHERY => HKWorkoutType.other,
+      HealthWorkoutActivityType.AUSTRALIAN_FOOTBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.BADMINTON => HKWorkoutType.other,
+      HealthWorkoutActivityType.BASEBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.BASKETBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.BOXING => HKWorkoutType.other,
+      HealthWorkoutActivityType.CARDIO_DANCE => HKWorkoutType.other,
+      HealthWorkoutActivityType.CRICKET => HKWorkoutType.other,
+      HealthWorkoutActivityType.CROSS_COUNTRY_SKIING => HKWorkoutType.other,
+      HealthWorkoutActivityType.CURLING => HKWorkoutType.other,
+      HealthWorkoutActivityType.DOWNHILL_SKIING => HKWorkoutType.other,
+      HealthWorkoutActivityType.ELLIPTICAL => HKWorkoutType.other,
+      HealthWorkoutActivityType.FENCING => HKWorkoutType.other,
+      HealthWorkoutActivityType.GOLF => HKWorkoutType.other,
+      HealthWorkoutActivityType.GYMNASTICS => HKWorkoutType.other,
+      HealthWorkoutActivityType.HANDBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.HIKING => HKWorkoutType.other,
+      HealthWorkoutActivityType.HOCKEY => HKWorkoutType.other,
+      HealthWorkoutActivityType.JUMP_ROPE => HKWorkoutType.other,
+      HealthWorkoutActivityType.KICKBOXING => HKWorkoutType.other,
+      HealthWorkoutActivityType.MARTIAL_ARTS => HKWorkoutType.other,
+      HealthWorkoutActivityType.PILATES => HKWorkoutType.other,
+      HealthWorkoutActivityType.RACQUETBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.ROWING => HKWorkoutType.other,
+      HealthWorkoutActivityType.RUGBY => HKWorkoutType.other,
+      HealthWorkoutActivityType.SAILING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SKATING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SNOWBOARDING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SOCCER => HKWorkoutType.other,
+      HealthWorkoutActivityType.SOFTBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.SQUASH => HKWorkoutType.other,
+      HealthWorkoutActivityType.STAIR_CLIMBING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SWIMMING => HKWorkoutType.other,
+      HealthWorkoutActivityType.TABLE_TENNIS => HKWorkoutType.other,
+      HealthWorkoutActivityType.TENNIS => HKWorkoutType.other,
+      HealthWorkoutActivityType.VOLLEYBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.WATER_POLO => HKWorkoutType.other,
+      // iOS-only sports / activities.
+      HealthWorkoutActivityType.BARRE => HKWorkoutType.other,
+      HealthWorkoutActivityType.BOWLING => HKWorkoutType.other,
+      HealthWorkoutActivityType.CLIMBING => HKWorkoutType.other,
+      HealthWorkoutActivityType.COOLDOWN => HKWorkoutType.other,
+      HealthWorkoutActivityType.CROSS_TRAINING => HKWorkoutType.other,
+      HealthWorkoutActivityType.DISC_SPORTS => HKWorkoutType.other,
+      HealthWorkoutActivityType.EQUESTRIAN_SPORTS => HKWorkoutType.other,
+      HealthWorkoutActivityType.FISHING => HKWorkoutType.other,
+      HealthWorkoutActivityType.FITNESS_GAMING => HKWorkoutType.other,
+      HealthWorkoutActivityType.FLEXIBILITY => HKWorkoutType.other,
+      HealthWorkoutActivityType.HAND_CYCLING => HKWorkoutType.other,
+      HealthWorkoutActivityType.HUNTING => HKWorkoutType.other,
+      HealthWorkoutActivityType.LACROSSE => HKWorkoutType.other,
+      HealthWorkoutActivityType.MIND_AND_BODY => HKWorkoutType.other,
+      HealthWorkoutActivityType.MIXED_CARDIO => HKWorkoutType.other,
+      HealthWorkoutActivityType.PADDLE_SPORTS => HKWorkoutType.other,
+      HealthWorkoutActivityType.PICKLEBALL => HKWorkoutType.other,
+      HealthWorkoutActivityType.PLAY => HKWorkoutType.other,
+      HealthWorkoutActivityType.PREPARATION_AND_RECOVERY => HKWorkoutType.other,
+      HealthWorkoutActivityType.SNOW_SPORTS => HKWorkoutType.other,
+      HealthWorkoutActivityType.SOCIAL_DANCE => HKWorkoutType.other,
+      HealthWorkoutActivityType.STAIRS => HKWorkoutType.other,
+      HealthWorkoutActivityType.STEP_TRAINING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SURFING => HKWorkoutType.other,
+      HealthWorkoutActivityType.TAI_CHI => HKWorkoutType.other,
+      HealthWorkoutActivityType.TRACK_AND_FIELD => HKWorkoutType.other,
+      HealthWorkoutActivityType.WATER_FITNESS => HKWorkoutType.other,
+      HealthWorkoutActivityType.WATER_SPORTS => HKWorkoutType.other,
+      HealthWorkoutActivityType.WHEELCHAIR_RUN_PACE => HKWorkoutType.other,
+      HealthWorkoutActivityType.WHEELCHAIR_WALK_PACE => HKWorkoutType.other,
+      HealthWorkoutActivityType.WRESTLING => HKWorkoutType.other,
+      HealthWorkoutActivityType.UNDERWATER_DIVING => HKWorkoutType.other,
+      // Android-only.
+      HealthWorkoutActivityType.CALISTHENICS => HKWorkoutType.other,
+      HealthWorkoutActivityType.DANCING => HKWorkoutType.other,
+      HealthWorkoutActivityType.FRISBEE_DISC => HKWorkoutType.other,
+      HealthWorkoutActivityType.GUIDED_BREATHING => HKWorkoutType.other,
+      HealthWorkoutActivityType.ICE_SKATING => HKWorkoutType.other,
+      HealthWorkoutActivityType.PARAGLIDING => HKWorkoutType.other,
+      HealthWorkoutActivityType.ROCK_CLIMBING => HKWorkoutType.other,
+      HealthWorkoutActivityType.ROWING_MACHINE => HKWorkoutType.other,
+      HealthWorkoutActivityType.SCUBA_DIVING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SKIING => HKWorkoutType.other,
+      HealthWorkoutActivityType.SNOWSHOEING => HKWorkoutType.other,
+      HealthWorkoutActivityType.STAIR_CLIMBING_MACHINE => HKWorkoutType.other,
+      HealthWorkoutActivityType.SWIMMING_OPEN_WATER => HKWorkoutType.other,
+      HealthWorkoutActivityType.SWIMMING_POOL => HKWorkoutType.other,
+      HealthWorkoutActivityType.WHEELCHAIR => HKWorkoutType.other,
+      // The package's own generic "other" bucket.
+      HealthWorkoutActivityType.OTHER => HKWorkoutType.other,
+    };
+  }
+
   /// Maps the `health` package's `HealthDataType.SLEEP_*` values into our
   /// compact [SleepStage] enum.
   ///
@@ -393,3 +590,14 @@ SleepStage? debugMapHealthSleepType(
   HealthSourceImpl impl,
   HealthDataType type,
 ) => impl._mapHealthSleepType(type);
+
+/// Test-only hook — exposes `_mapHealthWorkoutType` for the table-driven
+/// mapping test over every `HealthWorkoutActivityType` value.
+///
+/// Returns the [HKWorkoutType] bucket the `listWorkouts` pipeline would
+/// emit for a given activity type — proving the mapping is exhaustive.
+@visibleForTesting
+HKWorkoutType debugMapHealthWorkoutType(
+  HealthSourceImpl impl,
+  HealthWorkoutActivityType type,
+) => impl._mapHealthWorkoutType(type);

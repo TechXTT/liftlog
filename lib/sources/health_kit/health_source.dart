@@ -212,6 +212,92 @@ class HKSleepStageSample {
       'stage: $stage)';
 }
 
+/// Workout activity buckets surfaced by the façade.
+///
+/// The `health` package's `HealthWorkoutActivityType` ships ~80 values
+/// covering every HKWorkoutActivityType Apple has ever defined plus the
+/// Android Health Connect bucket set. Surfacing that full fan-out to the
+/// UI would both (a) bloat the renderer switch and (b) leak a package
+/// enum through the façade. Instead, we compress into a small, stable
+/// set tied to the user's domain: strength training variants the lifter
+/// is most likely to log, plus a handful of the common cardio buckets,
+/// and an explicit `other` bucket for everything else.
+///
+/// `other` is the **explicit** catch-all, not a silent fallback. Every
+/// renderer must enumerate all ten cases in a `switch` — canonical-enum
+/// rule (see CLAUDE.md).
+///
+/// Mapping lives in `health_source_impl.dart::_mapHealthWorkoutType`
+/// (exposed via `debugMapHealthWorkoutType` for the table-driven mapping
+/// test, same seam as the sleep mapper).
+enum HKWorkoutType {
+  traditionalStrengthTraining,
+  functionalStrengthTraining,
+  coreTraining,
+  highIntensityIntervalTraining,
+  running,
+  walking,
+  cycling,
+  yoga,
+  other,
+}
+
+/// A single workout sample surfaced by the HealthKit bridge.
+///
+/// HealthKit workouts are interval-shaped (start + end), so this value
+/// class carries both plus a pre-computed [duration] for consumer
+/// convenience. [type] is the compressed [HKWorkoutType] bucket — see the
+/// enum doc for the rationale.
+///
+/// Immutable, value-equal, pure Dart.
+class HKWorkoutSample {
+  const HKWorkoutSample({
+    required this.sourceId,
+    required this.startedAt,
+    required this.endedAt,
+    required this.type,
+    required this.duration,
+  });
+
+  /// Stable identifier from the underlying HKSample's source — the app or
+  /// device that recorded the workout (the Apple Watch's companion, a
+  /// third-party workout tracker, or a manual entry in the Health app).
+  /// Used for de-duplication across a refresh cycle.
+  final String sourceId;
+
+  /// Inclusive start of the workout interval.
+  final DateTime startedAt;
+
+  /// Exclusive end of the workout interval.
+  final DateTime endedAt;
+
+  /// Which bucket this workout maps to. See [HKWorkoutType].
+  final HKWorkoutType type;
+
+  /// Pre-computed duration. HealthKit reports this explicitly on the
+  /// sample; we pass it through rather than recomputing from
+  /// `endedAt - startedAt` so pause/resume gaps (which Apple tracks
+  /// natively) aren't accidentally counted as active time.
+  final Duration duration;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HKWorkoutSample &&
+      other.sourceId == sourceId &&
+      other.startedAt == startedAt &&
+      other.endedAt == endedAt &&
+      other.type == type &&
+      other.duration == duration;
+
+  @override
+  int get hashCode => Object.hash(sourceId, startedAt, endedAt, type, duration);
+
+  @override
+  String toString() =>
+      'HKWorkoutSample(sourceId: $sourceId, startedAt: $startedAt, '
+      'endedAt: $endedAt, type: $type, duration: $duration)';
+}
+
 /// Pure-Dart façade for a HealthKit source.
 ///
 /// The only implementation today (`HealthSourceImpl`) wraps
@@ -298,6 +384,22 @@ abstract class HealthSource {
   /// Streams sleep-stage samples in `[from, to)`. Same 60s poll semantics
   /// as [watchBodyWeight].
   Stream<List<HKSleepStageSample>> watchSleep({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// One-shot fetch of workout samples in `[from, to)`. A workout whose
+  /// `startedAt` falls inside the window is included. Ordered
+  /// newest-first by `startedAt`. Returns `[]` when workouts are not
+  /// authorized — partial HK denial does not throw.
+  Future<List<HKWorkoutSample>> listWorkouts({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// Streams workout samples in `[from, to)`. Same 60s poll semantics as
+  /// [watchBodyWeight].
+  Stream<List<HKWorkoutSample>> watchWorkouts({
     required DateTime from,
     required DateTime to,
   });
