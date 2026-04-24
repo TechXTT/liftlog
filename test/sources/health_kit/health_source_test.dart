@@ -531,6 +531,174 @@ void main() {
     });
   });
 
+  group('HKWorkoutSample value equality', () {
+    test('two samples with identical fields compare equal', () {
+      final a = HKWorkoutSample(
+        sourceId: 'com.apple.health.workouts',
+        startedAt: DateTime(2026, 4, 20, 18),
+        endedAt: DateTime(2026, 4, 20, 19),
+        type: HKWorkoutType.traditionalStrengthTraining,
+        duration: const Duration(hours: 1),
+      );
+      final b = HKWorkoutSample(
+        sourceId: 'com.apple.health.workouts',
+        startedAt: DateTime(2026, 4, 20, 18),
+        endedAt: DateTime(2026, 4, 20, 19),
+        type: HKWorkoutType.traditionalStrengthTraining,
+        duration: const Duration(hours: 1),
+      );
+      expect(a, equals(b));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('samples that differ on any field compare unequal', () {
+      final base = HKWorkoutSample(
+        sourceId: 'com.apple.health.workouts',
+        startedAt: DateTime(2026, 4, 20, 18),
+        endedAt: DateTime(2026, 4, 20, 19),
+        type: HKWorkoutType.traditionalStrengthTraining,
+        duration: const Duration(hours: 1),
+      );
+      // Different type.
+      expect(
+        base,
+        isNot(
+          equals(
+            HKWorkoutSample(
+              sourceId: 'com.apple.health.workouts',
+              startedAt: DateTime(2026, 4, 20, 18),
+              endedAt: DateTime(2026, 4, 20, 19),
+              type: HKWorkoutType.running,
+              duration: const Duration(hours: 1),
+            ),
+          ),
+        ),
+      );
+      // Different duration.
+      expect(
+        base,
+        isNot(
+          equals(
+            HKWorkoutSample(
+              sourceId: 'com.apple.health.workouts',
+              startedAt: DateTime(2026, 4, 20, 18),
+              endedAt: DateTime(2026, 4, 20, 19),
+              type: HKWorkoutType.traditionalStrengthTraining,
+              duration: const Duration(minutes: 45),
+            ),
+          ),
+        ),
+      );
+      // Different start.
+      expect(
+        base,
+        isNot(
+          equals(
+            HKWorkoutSample(
+              sourceId: 'com.apple.health.workouts',
+              startedAt: DateTime(2026, 4, 21, 18),
+              endedAt: DateTime(2026, 4, 20, 19),
+              type: HKWorkoutType.traditionalStrengthTraining,
+              duration: const Duration(hours: 1),
+            ),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('HKWorkoutType canonical enum', () {
+    // Dedicated coverage: every HKWorkoutType value must be reachable in
+    // a downstream consumer's `switch` — canonical-enum rule. The size
+    // check pins the set — if a new bucket lands, every renderer must be
+    // re-enumerated.
+    String dummyLabel(HKWorkoutType t) => switch (t) {
+      HKWorkoutType.traditionalStrengthTraining => 'Strength',
+      HKWorkoutType.functionalStrengthTraining => 'Functional',
+      HKWorkoutType.coreTraining => 'Core',
+      HKWorkoutType.highIntensityIntervalTraining => 'HIIT',
+      HKWorkoutType.running => 'Running',
+      HKWorkoutType.walking => 'Walking',
+      HKWorkoutType.cycling => 'Cycling',
+      HKWorkoutType.yoga => 'Yoga',
+      HKWorkoutType.other => 'Other',
+    };
+
+    test('every enum value resolves through an exhaustive switch', () {
+      for (final t in HKWorkoutType.values) {
+        expect(dummyLabel(t), isNotEmpty);
+      }
+      expect(HKWorkoutType.values, hasLength(9));
+    });
+  });
+
+  group('HealthSourceFake — workouts contract', () {
+    final w1 = HKWorkoutSample(
+      sourceId: 'com.apple.health.workouts',
+      startedAt: DateTime(2026, 4, 20, 18),
+      endedAt: DateTime(2026, 4, 20, 19),
+      type: HKWorkoutType.traditionalStrengthTraining,
+      duration: const Duration(hours: 1),
+    );
+    final w2 = HKWorkoutSample(
+      sourceId: 'com.apple.health.workouts',
+      startedAt: DateTime(2026, 4, 22, 7),
+      endedAt: DateTime(2026, 4, 22, 7, 45),
+      type: HKWorkoutType.running,
+      duration: const Duration(minutes: 45),
+    );
+
+    test(
+      'authorized: listWorkouts returns range-filtered, newest-first',
+      () async {
+        final fake = HealthSourceFake.withWorkouts([w1, w2]);
+        final got = await fake.listWorkouts(
+          from: DateTime(2026, 4, 1),
+          to: DateTime(2026, 5, 1),
+        );
+        expect(got, equals([w2, w1]));
+        expect(fake.listWorkoutsCallCount, 1);
+      },
+    );
+
+    test(
+      'authorized: range exclusion filters out workouts outside window',
+      () async {
+        final fake = HealthSourceFake.withWorkouts([w1, w2]);
+        final got = await fake.listWorkouts(
+          from: DateTime(2026, 4, 21),
+          to: DateTime(2026, 5, 1),
+        );
+        expect(got, equals([w2]));
+      },
+    );
+
+    test('not authorized: listWorkouts returns []', () async {
+      final fake = HealthSourceFake.notAuthorized();
+      final got = await fake.listWorkouts(
+        from: DateTime(2026, 4, 1),
+        to: DateTime(2026, 5, 1),
+      );
+      expect(got, isEmpty);
+    });
+
+    test('throwing fake surfaces the stubbed error for workouts', () async {
+      final fake = HealthSourceFake.throwing(StateError('boom'));
+      await expectLater(
+        fake.listWorkouts(from: DateTime(2026, 4, 1), to: DateTime(2026, 5, 1)),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('watchWorkouts emits the initial list', () async {
+      final fake = HealthSourceFake.withWorkouts([w1, w2]);
+      final first = await fake
+          .watchWorkouts(from: DateTime(2026, 4, 1), to: DateTime(2026, 5, 1))
+          .first;
+      expect(first, equals([w2, w1]));
+    });
+  });
+
   group('HealthSourceFake.authorizedWithSignals composite factory', () {
     test(
       'stubs multiple signals at once; omitted kinds default to []',
@@ -547,9 +715,18 @@ void main() {
           sdnnMs: 50.0,
         );
 
+        final workout = HKWorkoutSample(
+          sourceId: 'com.apple.health.workouts',
+          startedAt: DateTime(2026, 4, 20, 18),
+          endedAt: DateTime(2026, 4, 20, 19),
+          type: HKWorkoutType.traditionalStrengthTraining,
+          duration: const Duration(hours: 1),
+        );
+
         final fake = HealthSourceFake.authorizedWithSignals(
           weight: [weight],
           hrv: [hrv],
+          workouts: [workout],
         );
 
         expect(
@@ -565,6 +742,13 @@ void main() {
             to: DateTime(2026, 5, 1),
           ),
           equals([hrv]),
+        );
+        expect(
+          await fake.listWorkouts(
+            from: DateTime(2026, 4, 1),
+            to: DateTime(2026, 5, 1),
+          ),
+          equals([workout]),
         );
         // Omitted signals — both default to [].
         expect(
@@ -599,6 +783,10 @@ void main() {
       );
       await expectLater(
         fake.listSleep(from: DateTime(2026, 4, 1), to: DateTime(2026, 5, 1)),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(
+        fake.listWorkouts(from: DateTime(2026, 4, 1), to: DateTime(2026, 5, 1)),
         throwsA(isA<StateError>()),
       );
     });

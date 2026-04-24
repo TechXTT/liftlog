@@ -1,4 +1,5 @@
 import '../data/enums.dart';
+import '../sources/health_kit/health_source.dart';
 
 String mealTypeLabel(MealType t) {
   switch (t) {
@@ -32,5 +33,33 @@ String workoutSetStatusLabel(WorkoutSetStatus s) {
       return 'Completed';
     case WorkoutSetStatus.skipped:
       return 'Skipped';
+  }
+}
+
+/// Human-readable label for a HealthKit workout type bucket.
+///
+/// Enumerates every [HKWorkoutType] case (canonical-enum rule). If a new
+/// bucket is added, the analyzer flags this switch before it reaches the
+/// UI.
+String hkWorkoutTypeLabel(HKWorkoutType t) {
+  switch (t) {
+    case HKWorkoutType.traditionalStrengthTraining:
+      return 'Strength training';
+    case HKWorkoutType.functionalStrengthTraining:
+      return 'Functional strength';
+    case HKWorkoutType.coreTraining:
+      return 'Core training';
+    case HKWorkoutType.highIntensityIntervalTraining:
+      return 'HIIT';
+    case HKWorkoutType.running:
+      return 'Running';
+    case HKWorkoutType.walking:
+      return 'Walking';
+    case HKWorkoutType.cycling:
+      return 'Cycling';
+    case HKWorkoutType.yoga:
+      return 'Yoga';
+    case HKWorkoutType.other:
+      return 'Other';
   }
 }

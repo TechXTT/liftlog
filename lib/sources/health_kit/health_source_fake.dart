@@ -19,9 +19,11 @@ import 'health_source.dart';
 /// * `HealthSourceFake.withHRV(samples)` — authorized, only HRV stubbed.
 /// * `HealthSourceFake.withRestingHR(samples)` — authorized, only resting HR.
 /// * `HealthSourceFake.withSleep(samples)` — authorized, only sleep stubbed.
-/// * `HealthSourceFake.authorizedWithSignals({weight, hrv, restingHR, sleep})`
-///   — composite, for widget tests that want to stub multiple signals at
-///   once.
+/// * `HealthSourceFake.withWorkouts(samples)` — authorized, only workouts
+///   stubbed.
+/// * `HealthSourceFake.authorizedWithSignals({weight, hrv, restingHR,
+///   sleep, workouts})` — composite, for widget tests that want to stub
+///   multiple signals at once.
 class HealthSourceFake implements HealthSource {
   HealthSourceFake({
     required bool authorized,
@@ -29,6 +31,7 @@ class HealthSourceFake implements HealthSource {
     List<HKHRVSample> hrvSamples = const [],
     List<HKRestingHRSample> restingHrSamples = const [],
     List<HKSleepStageSample> sleepSamples = const [],
+    List<HKWorkoutSample> workoutSamples = const [],
     Object? error,
     bool permissionGrantOutcome = true,
   }) : _authorized = authorized,
@@ -36,6 +39,7 @@ class HealthSourceFake implements HealthSource {
        _hrvSamples = List.unmodifiable(hrvSamples),
        _restingHrSamples = List.unmodifiable(restingHrSamples),
        _sleepSamples = List.unmodifiable(sleepSamples),
+       _workoutSamples = List.unmodifiable(workoutSamples),
        _error = error,
        _permissionGrantOutcome = permissionGrantOutcome;
 
@@ -72,6 +76,10 @@ class HealthSourceFake implements HealthSource {
   factory HealthSourceFake.withSleep(List<HKSleepStageSample> samples) =>
       HealthSourceFake(authorized: true, sleepSamples: samples);
 
+  /// Convenience: authorized, workout samples only.
+  factory HealthSourceFake.withWorkouts(List<HKWorkoutSample> samples) =>
+      HealthSourceFake(authorized: true, workoutSamples: samples);
+
   /// Composite factory: authorized, stub multiple signal kinds at once.
   /// Any omitted kind defaults to `[]`. Use this from widget tests that
   /// exercise several HK signals simultaneously.
@@ -80,12 +88,14 @@ class HealthSourceFake implements HealthSource {
     List<HKHRVSample> hrv = const [],
     List<HKRestingHRSample> restingHR = const [],
     List<HKSleepStageSample> sleep = const [],
+    List<HKWorkoutSample> workouts = const [],
   }) => HealthSourceFake(
     authorized: true,
     samples: weight,
     hrvSamples: hrv,
     restingHrSamples: restingHR,
     sleepSamples: sleep,
+    workoutSamples: workouts,
   );
 
   final bool _authorized;
@@ -93,6 +103,7 @@ class HealthSourceFake implements HealthSource {
   final List<HKHRVSample> _hrvSamples;
   final List<HKRestingHRSample> _restingHrSamples;
   final List<HKSleepStageSample> _sleepSamples;
+  final List<HKWorkoutSample> _workoutSamples;
   final Object? _error;
   final bool _permissionGrantOutcome;
 
@@ -101,6 +112,7 @@ class HealthSourceFake implements HealthSource {
   int listHRVCallCount = 0;
   int listRestingHRCallCount = 0;
   int listSleepCallCount = 0;
+  int listWorkoutsCallCount = 0;
 
   @override
   Future<bool> requestPermissions() async {
@@ -217,5 +229,35 @@ class HealthSourceFake implements HealthSource {
     required DateTime to,
   }) async* {
     yield await listSleep(from: from, to: to);
+  }
+
+  @override
+  Future<List<HKWorkoutSample>> listWorkouts({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    listWorkoutsCallCount += 1;
+    if (_error != null) throw _error;
+    if (!_authorized) return const [];
+    // `startedAt` in range — from-inclusive, to-exclusive, matching
+    // `listBodyWeight` semantics. Workouts are interval-shaped, but a
+    // workout is "in" a window if it started during the window; that
+    // matches how a consumer reasons about "workouts on this date."
+    final inRange =
+        _workoutSamples
+            .where(
+              (s) => !s.startedAt.isBefore(from) && s.startedAt.isBefore(to),
+            )
+            .toList()
+          ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    return inRange;
+  }
+
+  @override
+  Stream<List<HKWorkoutSample>> watchWorkouts({
+    required DateTime from,
+    required DateTime to,
+  }) async* {
+    yield await listWorkouts(from: from, to: to);
   }
 }
