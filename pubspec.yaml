@@ -37,6 +37,15 @@ dependencies:
   # `share_plus ^13` on `win32` constraints — 11.x resolves cleanly.)
   file_picker: ^11.0.0
 
+  # HealthKit bridge (body-weight read, issue #43). Apple-native HealthKit
+  # Dart bridge — maintained, avoids writing a custom method-channel on
+  # top of HKHealthStore. Alternatives considered: custom method-channel
+  # (rejected — boilerplate for a bridge that already exists) and
+  # `health_kit_reporter` (rejected — less active, narrower coverage).
+  # Pinned to the current stable major (13.x); bumps require a
+  # justification in the PR body.
+  health: ^13.3.1
+
 # iOS-only app: `win32` is a transitive Dart FFI dep of `file_picker`
 # (^5.9.0) and `share_plus` (^6.0.1) whose version ranges don't overlap.
 # Neither version is actually loaded on iOS (the plugin code path is
