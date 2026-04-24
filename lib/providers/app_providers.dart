@@ -8,6 +8,8 @@ import '../data/repositories/exercise_set_repository.dart';
 import '../data/repositories/food_entry_repository.dart';
 import '../data/repositories/routine_repository.dart';
 import '../data/repositories/workout_session_repository.dart';
+import '../sources/cloudkit/cloud_kit_source.dart';
+import '../sources/cloudkit/method_channel_cloud_kit_source.dart';
 import '../sources/health_kit/health_source.dart';
 import '../sources/health_kit/health_source_impl.dart';
 
@@ -57,4 +59,15 @@ final dailyTargetRepositoryProvider = Provider<DailyTargetRepository>((ref) {
 /// so nothing in the test tree reaches a real HealthKit channel.
 final healthSourceProvider = Provider<HealthSource>((ref) {
   return HealthSourceImpl();
+});
+
+/// CloudKit façade provider (issue #69, S7.1 walking skeleton).
+///
+/// Production wiring returns [MethodChannelCloudKitSource] — the concrete
+/// `dev.techxtt.liftlog/cloudkit` method-channel bridge. Tests override
+/// this with `FakeCloudKitSource` from
+/// `lib/sources/cloudkit/fake_cloud_kit_source.dart` so nothing in the
+/// test tree reaches a real platform channel.
+final cloudKitSourceProvider = Provider<CloudKitSource>((ref) {
+  return MethodChannelCloudKitSource();
 });
