@@ -46,6 +46,35 @@ dependencies:
   # justification in the PR body.
   health: ^13.3.1
 
+  # App metadata (version / build number / bundle id) for the Settings →
+  # About section (issue #48). Standard Flutter-team-maintained wrapper
+  # for `NSBundle` / `PackageManager`. Alternatives considered: hardcoding
+  # a const (rejected — would drift from `pubspec.yaml`'s version on every
+  # bump) and reading `pubspec.yaml` at runtime via `rootBundle` (rejected
+  # — `pubspec.yaml` is not bundled as an asset by default and bundle-id /
+  # build-number still require a native lookup).
+  #
+  # Pinned to 9.x (not the latest 10.x) because 10.x's Windows source
+  # requires `win32 ^6.x`, which conflicts with our existing
+  # `dependency_overrides: win32: ^5.9.0` (itself a stopgap to keep
+  # share_plus + file_picker Windows sources compilable under
+  # `flutter test` on macOS — the Dart VM compiles the package's Windows
+  # code path unconditionally). 9.0.1 is the most recent release on the
+  # `win32 ^5` line and still actively supported. Revisit when the
+  # win32-5 override goes away.
+  package_info_plus: ^9.0.1
+
+  # iOS "Open Settings" deep link from the Settings → HealthKit section
+  # (issue #48). Standard Flutter-team-maintained wrapper for
+  # `UIApplication.openURL:`. We only use `launchUrl(Uri.parse('app-settings:'))`
+  # — the iOS `app-settings:` URL scheme routes to this app's page inside
+  # the system Settings app. Alternatives considered: rolling a method
+  # channel (rejected — one-line wrapper, not worth the native boilerplate)
+  # and shipping no CTA (rejected — users on "Not authorized" need a path
+  # to fix it without hunting in Settings). Pinned to the current stable
+  # major (6.x).
+  url_launcher: ^6.3.2
+
 # iOS-only app: `win32` is a transitive Dart FFI dep of `file_picker`
 # (^5.9.0) and `share_plus` (^6.0.1) whose version ranges don't overlap.
 # Neither version is actually loaded on iOS (the plugin code path is
