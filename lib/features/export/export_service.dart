@@ -23,6 +23,7 @@ import 'dart:convert';
 
 import '../../data/database.dart';
 import '../../data/repositories/body_weight_log_repository.dart';
+import '../../data/repositories/daily_target_repository.dart';
 import '../../data/repositories/exercise_set_repository.dart';
 import '../../data/repositories/food_entry_repository.dart';
 import '../../data/repositories/routine_repository.dart';
@@ -62,13 +63,15 @@ Future<String> buildExportJson({
   final sessionRepo = WorkoutSessionRepository(db);
   final setRepo = ExerciseSetRepository(db);
   final routineRepo = RoutineRepository(db);
+  final dailyTargetRepo = DailyTargetRepository(db);
 
   // Fan out all reads in parallel. None of them depend on each other
-  // so there's no ordering concern here. Routines + routine_exercises
-  // (schema v4, issue #52) appended to the list — the `format_version`
-  // stays at '1' because the new keys are additive snake_case fields
-  // that old importers safely ignore (same reasoning as the S5.1
-  // `source` column addition on the four original entities).
+  // so there's no ordering concern here. `routines` / `routine_exercises`
+  // (schema v4, issue #52) and `daily_targets` (schema v5, issue #59)
+  // are appended to the list — the `format_version` stays at '1'
+  // because the new keys are additive snake_case fields that old
+  // importers safely ignore (same reasoning as the S5.1 `source`
+  // column addition on the four original entities).
   final results = await Future.wait<List<Object>>([
     foodRepo.listAll(),
     weightRepo.listAll(),
@@ -76,6 +79,7 @@ Future<String> buildExportJson({
     setRepo.listAll(),
     routineRepo.listAll(),
     routineRepo.listAllExercises(),
+    dailyTargetRepo.listAll(),
   ]);
 
   // Each repo's `listAll` orders by timestamp descending (or similar);
@@ -94,6 +98,8 @@ Future<String> buildExportJson({
     ..sort((a, b) => a.id.compareTo(b.id));
   final routineExercises = [...results[5] as List<RoutineExercise>]
     ..sort((a, b) => a.id.compareTo(b.id));
+  final dailyTargets = [...results[6] as List<DailyTarget>]
+    ..sort((a, b) => a.id.compareTo(b.id));
 
   final payload = <String, Object?>{
     'meta': <String, Object?>{
@@ -108,6 +114,7 @@ Future<String> buildExportJson({
         'exercise_sets': exerciseSets.length,
         'routines': routines.length,
         'routine_exercises': routineExercises.length,
+        'daily_targets': dailyTargets.length,
       },
       'note':
           'All arrays below are user-entered rows exactly as stored. '
@@ -121,6 +128,7 @@ Future<String> buildExportJson({
     'exercise_sets': exerciseSets.map(_exerciseSetToJson).toList(),
     'routines': routines.map(_routineToJson).toList(),
     'routine_exercises': routineExercises.map(_routineExerciseToJson).toList(),
+    'daily_targets': dailyTargets.map(_dailyTargetToJson).toList(),
   };
 
   return jsonEncode(payload);
@@ -187,3 +195,12 @@ Map<String, Object?> _routineExerciseToJson(RoutineExercise e) =>
       // rather than a `containsKey` check.
       'target_weight_unit': e.targetWeightUnit?.name,
     };
+
+Map<String, Object?> _dailyTargetToJson(DailyTarget t) => <String, Object?>{
+  'id': t.id,
+  'kcal': t.kcal,
+  'protein_g': t.proteinG,
+  'effective_from': t.effectiveFrom.toUtc().toIso8601String(),
+  'created_at': t.createdAt.toUtc().toIso8601String(),
+  'source': t.source.name,
+};

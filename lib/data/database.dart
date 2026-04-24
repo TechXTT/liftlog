@@ -123,6 +123,32 @@ class RoutineExercises extends Table {
   TextColumn get targetWeightUnit => textEnum<WeightUnit>().nullable()();
 }
 
+/// Daily calorie + protein target (schema v5, issue #59 — E5 kickoff).
+///
+/// Targets are historical: a new row is inserted whenever the user
+/// changes their goal, and the "active" target on a given day is the
+/// one with the largest `effectiveFrom` that is still `<=` the day.
+/// This preserves intent over time — a target set on Apr 1 still
+/// governs Apr 5 even after a new target lands on Apr 10 — and keeps
+/// the "no hidden auto-adjustment" trust rule honest: the UI can show
+/// the user exactly which target was in effect when a day was logged.
+///
+/// `source` defaults to `'userEntered'` so the additive v4→v5
+/// migration can `createTable(dailyTargets)` without needing to seed a
+/// backfill row — the column is always explicit when the user sets a
+/// target. No delete API: historical integrity means we never remove a
+/// prior target from the table (user edits add a new row with a new
+/// `effectiveFrom`).
+class DailyTargets extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get kcal => integer()();
+  RealColumn get proteinG => real()();
+  DateTimeColumn get effectiveFrom => dateTime()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get source =>
+      textEnum<Source>().withDefault(const Constant('userEntered'))();
+}
+
 @DriftDatabase(
   tables: [
     FoodEntries,
@@ -132,6 +158,7 @@ class RoutineExercises extends Table {
     Exercises,
     Routines,
     RoutineExercises,
+    DailyTargets,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -140,7 +167,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -176,6 +203,18 @@ class AppDatabase extends _$AppDatabase {
         // but there are no existing rows to backfill anyway.
         await m.createTable(routines);
         await m.createTable(routineExercises);
+      }
+      if (from < 5) {
+        // Additive-only — a single brand-new table (`daily_targets`).
+        // No transform on existing tables, no backfill. Backup path
+        // documented in Runbooks ("Manual backup path — v4 → v5") per
+        // the platform-risk guardrail. `daily_targets.source` has a
+        // default ('userEntered'); every other column is non-null and
+        // populated explicitly when the user sets a target (kcal,
+        // protein_g, effective_from, created_at), so no DEFAULT rows
+        // are needed for an empty table — every insert supplies the
+        // values.
+        await m.createTable(dailyTargets);
       }
     },
     beforeOpen: (details) async {

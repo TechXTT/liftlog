@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'sections/about_section.dart';
+import 'sections/daily_targets_section.dart';
 import 'sections/data_section.dart';
 import 'sections/healthkit_section.dart';
 
@@ -27,6 +28,10 @@ class SettingsScreen extends ConsumerWidget {
         children: const [
           _SectionHeader(label: 'HealthKit'),
           HealthKitSection(),
+          SizedBox(height: 8),
+          Divider(height: 1),
+          _SectionHeader(label: 'Daily targets'),
+          DailyTargetsSection(),
           SizedBox(height: 8),
           Divider(height: 1),
           _SectionHeader(label: 'Data'),

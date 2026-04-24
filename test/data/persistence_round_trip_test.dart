@@ -553,6 +553,246 @@ void main() {
     });
   });
 
+  group('v4 → v5 migration', () {
+    // Simulates an upgrade from schema v4 (post-issue #52) to v5:
+    //  - Creates a fresh sqlite file with the v4 table shape via raw SQL
+    //    and sets `PRAGMA user_version = 4` so Drift reads it as v4.
+    //  - Inserts sample rows across the v4 entities (including the
+    //    routines + routine_exercises tables added in S5.5).
+    //  - Opens AppDatabase (schemaVersion = 5) which fires onUpgrade.
+    //  - Asserts: existing rows survive untouched; the new
+    //    `daily_targets` table exists and is empty; new inserts work
+    //    with source defaulting to 'userEntered'.
+    //
+    // Same raw-sqlite3 setup rationale as the v2→v3 / v3→v4 groups
+    // above: Drift can't address a "previous-schema" layout from its
+    // own API, so we build the v4 shape by hand.
+
+    Directory tempDir() {
+      final dir = Directory.systemTemp.createTempSync('liftlog_migrate_v5_');
+      addTearDown(() {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+      return dir;
+    }
+
+    /// Writes a schema-v4-shaped database to [path]. Mirrors the shape
+    /// `AppDatabase` had immediately after the v3→v4 migration landed:
+    /// v3 entities + the `routines` and `routine_exercises` tables. No
+    /// `daily_targets` table yet. PRAGMA user_version is set to 4 so
+    /// Drift sees "from = 4" on open.
+    void seedV4Database(String path) {
+      final raw = sqlite3.open(path);
+      try {
+        raw.execute('PRAGMA foreign_keys = ON');
+        raw.execute('''
+          CREATE TABLE food_entries (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            kcal INTEGER NOT NULL,
+            protein_g REAL NOT NULL,
+            meal_type TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            note TEXT NULL,
+            source TEXT NOT NULL DEFAULT 'userEntered'
+          )
+        ''');
+        raw.execute('''
+          CREATE TABLE workout_sessions (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            started_at INTEGER NOT NULL,
+            ended_at INTEGER NULL,
+            note TEXT NULL,
+            source TEXT NOT NULL DEFAULT 'userEntered'
+          )
+        ''');
+        raw.execute('''
+          CREATE TABLE exercises (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            canonical_name TEXT NOT NULL UNIQUE,
+            muscle_group TEXT NULL,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+        raw.execute('''
+          CREATE TABLE exercise_sets (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL REFERENCES workout_sessions (id) ON DELETE CASCADE,
+            exercise_name TEXT NOT NULL,
+            reps INTEGER NOT NULL,
+            weight REAL NOT NULL,
+            weight_unit TEXT NOT NULL,
+            status TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            exercise_id INTEGER NULL REFERENCES exercises (id),
+            source TEXT NOT NULL DEFAULT 'userEntered'
+          )
+        ''');
+        raw.execute('''
+          CREATE TABLE body_weight_logs (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            value REAL NOT NULL,
+            unit TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'userEntered'
+          )
+        ''');
+        raw.execute('''
+          CREATE TABLE routines (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            notes TEXT NULL,
+            created_at INTEGER NOT NULL,
+            source TEXT NOT NULL DEFAULT 'userEntered'
+          )
+        ''');
+        raw.execute('''
+          CREATE TABLE routine_exercises (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            routine_id INTEGER NOT NULL REFERENCES routines (id) ON DELETE CASCADE,
+            exercise_id INTEGER NOT NULL REFERENCES exercises (id),
+            order_index INTEGER NOT NULL,
+            target_sets INTEGER NULL,
+            target_reps INTEGER NULL,
+            target_weight REAL NULL,
+            target_weight_unit TEXT NULL
+          )
+        ''');
+        raw.execute(
+          "INSERT INTO food_entries (timestamp, name, kcal, protein_g, meal_type, entry_type) "
+          "VALUES (1000, 'Eggs', 140, 12.0, 'breakfast', 'manual')",
+        );
+        raw.execute(
+          "INSERT INTO body_weight_logs (timestamp, value, unit) "
+          "VALUES (1000, 80.0, 'kg')",
+        );
+        raw.execute("INSERT INTO workout_sessions (started_at) VALUES (1000)");
+        raw.execute(
+          "INSERT INTO exercises (canonical_name, created_at) VALUES ('Bench Press', 1000)",
+        );
+        raw.execute(
+          "INSERT INTO exercise_sets (session_id, exercise_name, reps, weight, weight_unit, status, order_index, exercise_id) "
+          "VALUES (1, 'Bench Press', 8, 80.0, 'kg', 'completed', 0, 1)",
+        );
+        raw.execute(
+          "INSERT INTO routines (name, created_at) VALUES ('Push A', 1000)",
+        );
+        raw.execute(
+          "INSERT INTO routine_exercises (routine_id, exercise_id, order_index, target_sets, target_reps, target_weight, target_weight_unit) "
+          "VALUES (1, 1, 0, 4, 8, 80.0, 'kg')",
+        );
+        raw.execute('PRAGMA user_version = 4');
+      } finally {
+        raw.close();
+      }
+    }
+
+    test(
+      'existing rows across v4 entities survive the upgrade intact',
+      () async {
+        final dir = tempDir();
+        final dbPath = p.join(dir.path, 'liftlog.sqlite');
+        seedV4Database(dbPath);
+
+        final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+        addTearDown(db.close);
+
+        // Spot-check one row per entity — the v2→v3 / v3→v4 groups
+        // cover every field already, and this group's focus is the
+        // v4→v5 delta (new `daily_targets` table), not re-asserting
+        // every prior upgrade.
+        final foods = await db
+            .customSelect('SELECT name, kcal FROM food_entries')
+            .get();
+        expect(foods, hasLength(1));
+        expect(foods.single.read<String>('name'), 'Eggs');
+
+        final routines = await db
+            .customSelect('SELECT name FROM routines')
+            .get();
+        expect(routines, hasLength(1));
+        expect(routines.single.read<String>('name'), 'Push A');
+
+        final routineExercises = await db
+            .customSelect('SELECT routine_id, exercise_id FROM routine_exercises')
+            .get();
+        expect(routineExercises, hasLength(1));
+      },
+    );
+
+    test('daily_targets table exists and starts empty', () async {
+      final dir = tempDir();
+      final dbPath = p.join(dir.path, 'liftlog.sqlite');
+      seedV4Database(dbPath);
+
+      final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      addTearDown(db.close);
+
+      final count = await db
+          .customSelect('SELECT COUNT(*) AS c FROM daily_targets')
+          .getSingle();
+      expect(count.read<int>('c'), 0);
+    });
+
+    test(
+      'can insert into daily_targets after upgrade with source defaulted',
+      () async {
+        final dir = tempDir();
+        final dbPath = p.join(dir.path, 'liftlog.sqlite');
+        seedV4Database(dbPath);
+
+        final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+        addTearDown(db.close);
+
+        final id = await db
+            .into(db.dailyTargets)
+            .insert(
+              DailyTargetsCompanion.insert(
+                kcal: 2000,
+                proteinG: 140,
+                effectiveFrom: DateTime(2026, 4, 1),
+                createdAt: DateTime(2026, 4, 1, 9),
+              ),
+            );
+        expect(id, isPositive);
+
+        final row = await db
+            .customSelect(
+              'SELECT kcal, protein_g, source FROM daily_targets WHERE id = ?',
+              variables: [Variable<int>(id)],
+            )
+            .getSingle();
+        expect(row.read<int>('kcal'), 2000);
+        expect(row.read<double>('protein_g'), 140.0);
+        expect(
+          row.read<String>('source'),
+          'userEntered',
+          reason: 'source column default must be applied by the migration',
+        );
+      },
+    );
+
+    test(
+      'schemaVersion is 5 after the upgrade fires',
+      () async {
+        final dir = tempDir();
+        final dbPath = p.join(dir.path, 'liftlog.sqlite');
+        seedV4Database(dbPath);
+
+        final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+        addTearDown(db.close);
+        // Touch the DB so the connection opens and the migration runs.
+        await db.customSelect('SELECT 1 AS x').getSingle();
+
+        final userVersion = await db
+            .customSelect('PRAGMA user_version')
+            .getSingle();
+        expect(userVersion.read<int>('user_version'), 5);
+      },
+    );
+  });
+
   group('exercise_id backfill', () {
     // Exercises the `beforeOpen` UPDATE introduced in issue #47 directly —
     // not the v2→v3 migration path. Builds a schema-v3-shaped DB in a

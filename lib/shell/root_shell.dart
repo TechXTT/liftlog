@@ -17,14 +17,25 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   int _index = 0;
 
-  static const _tabs = <Widget>[
-    FoodLogScreen(),
-    BodyWeightScreen(),
-    WorkoutListScreen(),
-    HistoryScreen(),
-    ProgressScreen(),
-    SettingsScreen(),
+  /// Index of the Settings tab in the `_tabs` list below. Kept as a
+  /// named constant so the Food tab's "Set a daily target in Settings"
+  /// affordance (issue #59) can jump directly without hardcoding a
+  /// magic number that falls out of sync when tabs get reordered.
+  static const int _settingsTabIndex = 5;
+
+  late final List<Widget> _tabs = [
+    FoodLogScreen(onRequestSettings: _goToSettings),
+    const BodyWeightScreen(),
+    const WorkoutListScreen(),
+    const HistoryScreen(),
+    const ProgressScreen(),
+    const SettingsScreen(),
   ];
+
+  void _goToSettings() {
+    if (!mounted) return;
+    setState(() => _index = _settingsTabIndex);
+  }
 
   @override
   Widget build(BuildContext context) {

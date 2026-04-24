@@ -10,9 +10,17 @@ import 'estimate_badge.dart';
 import 'food_entry_form_screen.dart';
 import 'food_providers.dart';
 import 'recent_foods_strip.dart';
+import 'remaining_today_row.dart';
 
 class FoodLogScreen extends ConsumerWidget {
-  const FoodLogScreen({super.key});
+  const FoodLogScreen({super.key, this.onRequestSettings});
+
+  /// Called when the "Set a daily target in Settings" affordance is
+  /// tapped in the no-target state of the Remaining-today row. The
+  /// root shell wires this to jump to the Settings tab. Null is fine
+  /// in tests and in contexts where the Food tab is rendered
+  /// standalone — the tap becomes a no-op.
+  final VoidCallback? onRequestSettings;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,6 +37,7 @@ class FoodLogScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _TotalsHeader(totals: totals),
+          RemainingTodayRow(onRequestSettings: onRequestSettings),
           const RecentFoodsStrip(),
           const Divider(height: 1),
           Expanded(

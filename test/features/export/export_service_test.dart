@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
+import 'package:liftlog_app/data/repositories/daily_target_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_set_repository.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
@@ -33,6 +34,7 @@ void main() {
   late ExerciseSetRepository sets;
   late ExerciseRepository exerciseCatalog;
   late RoutineRepository routines;
+  late DailyTargetRepository dailyTargets;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -42,6 +44,7 @@ void main() {
     sets = ExerciseSetRepository(db);
     exerciseCatalog = ExerciseRepository(db);
     routines = RoutineRepository(db);
+    dailyTargets = DailyTargetRepository(db);
   });
 
   tearDown(() async => db.close());
@@ -164,6 +167,26 @@ void main() {
         orderIndex: 1,
       ),
     );
+
+    // Daily targets (schema v5, issue #59). One default-sourced row and
+    // one with `source: imported` so the enum path is exercised.
+    await dailyTargets.add(
+      DailyTargetsCompanion.insert(
+        kcal: 1800,
+        proteinG: 120,
+        effectiveFrom: DateTime.utc(2026, 1, 1),
+        createdAt: DateTime.utc(2026, 1, 1, 9),
+      ),
+    );
+    await dailyTargets.add(
+      DailyTargetsCompanion.insert(
+        kcal: 2000,
+        proteinG: 140,
+        effectiveFrom: DateTime.utc(2026, 4, 1),
+        createdAt: DateTime.utc(2026, 4, 1, 9),
+        source: const Value(Source.imported),
+      ),
+    );
   }
 
   test('top-level keys are exactly meta + four entity arrays', () async {
@@ -185,6 +208,7 @@ void main() {
         'exercise_sets',
         'routines',
         'routine_exercises',
+        'daily_targets',
       },
       reason: 'exact set of top-level keys is part of the format contract',
     );
@@ -213,6 +237,7 @@ void main() {
     expect(counts['exercise_sets'], 2);
     expect(counts['routines'], 1);
     expect(counts['routine_exercises'], 2);
+    expect(counts['daily_targets'], 2);
   });
 
   test('food entry every-field round-trip with enum + null note', () async {
@@ -364,6 +389,7 @@ void main() {
       'exercise_sets',
       'routines',
       'routine_exercises',
+      'daily_targets',
     ]) {
       final got = ids(key);
       final expected = [...got]..sort();
@@ -417,6 +443,7 @@ void main() {
         'exercise_sets',
         'routines',
         'routine_exercises',
+        'daily_targets',
       });
       expect((decoded['food_entries'] as List), isEmpty);
       expect((decoded['body_weight_logs'] as List), isEmpty);
@@ -424,6 +451,7 @@ void main() {
       expect((decoded['exercise_sets'] as List), isEmpty);
       expect((decoded['routines'] as List), isEmpty);
       expect((decoded['routine_exercises'] as List), isEmpty);
+      expect((decoded['daily_targets'] as List), isEmpty);
 
       final counts = (decoded['meta'] as Map<String, dynamic>)['counts'] as Map;
       expect(counts['food_entries'], 0);
@@ -432,6 +460,7 @@ void main() {
       expect(counts['exercise_sets'], 0);
       expect(counts['routines'], 0);
       expect(counts['routine_exercises'], 0);
+      expect(counts['daily_targets'], 0);
     },
   );
 
@@ -455,6 +484,38 @@ void main() {
       expect(r['created_at'], '2026-04-20T12:00:00.000Z');
       // Source.userEntered is the default applied by the schema.
       expect(r['source'], 'userEntered');
+    },
+  );
+
+  test(
+    'daily_targets every-field round-trip with source + effective_from',
+    () async {
+      await seedAll();
+
+      final json = await buildExportJson(
+        db: db,
+        now: DateTime.utc(2026, 4, 24, 9, 14),
+      );
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      final list = (decoded['daily_targets'] as List).cast<Map>();
+      expect(list, hasLength(2));
+
+      // First row: defaulted source.
+      final first = list[0];
+      expect(first['id'], 1);
+      expect(first['kcal'], 1800);
+      expect(first['protein_g'], 120.0);
+      expect(first['effective_from'], '2026-01-01T00:00:00.000Z');
+      expect(first['created_at'], '2026-01-01T09:00:00.000Z');
+      expect(first['source'], 'userEntered');
+
+      // Second row: explicit source = imported (enum path).
+      final second = list[1];
+      expect(second['id'], 2);
+      expect(second['kcal'], 2000);
+      expect(second['protein_g'], 140.0);
+      expect(second['effective_from'], '2026-04-01T00:00:00.000Z');
+      expect(second['source'], 'imported');
     },
   );
 

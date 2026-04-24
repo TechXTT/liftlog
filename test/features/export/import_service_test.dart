@@ -22,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
+import 'package:liftlog_app/data/repositories/daily_target_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_set_repository.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
@@ -38,6 +39,7 @@ void main() {
   late ExerciseSetRepository sets;
   late ExerciseRepository exerciseCatalog;
   late RoutineRepository routines;
+  late DailyTargetRepository dailyTargets;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -47,6 +49,7 @@ void main() {
     sets = ExerciseSetRepository(db);
     exerciseCatalog = ExerciseRepository(db);
     routines = RoutineRepository(db);
+    dailyTargets = DailyTargetRepository(db);
   });
 
   tearDown(() async => db.close());
@@ -159,6 +162,28 @@ void main() {
         orderIndex: 1,
       ),
     );
+
+    // Daily targets (schema v5, issue #59). Seed two rows so the
+    // round-trip has to preserve insertion order + the active-on
+    // ordering semantics. One row uses the defaulted `source`; the
+    // other sets `source: imported` to prove the enum travels intact.
+    await dailyTargets.add(
+      DailyTargetsCompanion.insert(
+        kcal: 1800,
+        proteinG: 120,
+        effectiveFrom: DateTime.utc(2026, 1, 1),
+        createdAt: DateTime.utc(2026, 1, 1, 9),
+      ),
+    );
+    await dailyTargets.add(
+      DailyTargetsCompanion.insert(
+        kcal: 2000,
+        proteinG: 140,
+        effectiveFrom: DateTime.utc(2026, 4, 1),
+        createdAt: DateTime.utc(2026, 4, 1, 9),
+        source: const Value(Source.imported),
+      ),
+    );
   }
 
   test('round-trip: export + importReplacing preserves every field', () async {
@@ -180,6 +205,8 @@ void main() {
       ..sort((a, b) => a.id.compareTo(b.id));
     final preRoutineExercises = [...await routines.listAllExercises()]
       ..sort((a, b) => a.id.compareTo(b.id));
+    final preDailyTargets = [...await dailyTargets.listAll()]
+      ..sort((a, b) => a.id.compareTo(b.id));
 
     // Wipe + re-import via the replacing path.
     final result = await importJsonReplacing(
@@ -196,7 +223,8 @@ void main() {
           preSessions.length +
           preSets.length +
           preRoutines.length +
-          preRoutineExercises.length,
+          preRoutineExercises.length +
+          preDailyTargets.length,
     );
 
     final postFoods = [...await foods.listAll()]
@@ -284,6 +312,20 @@ void main() {
       expect(b.targetWeight, a.targetWeight);
       expect(b.targetWeightUnit, a.targetWeightUnit);
     }
+
+    final postDailyTargets = [...await dailyTargets.listAll()]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    expect(postDailyTargets.length, preDailyTargets.length);
+    for (var i = 0; i < preDailyTargets.length; i++) {
+      final a = preDailyTargets[i];
+      final b = postDailyTargets[i];
+      expect(b.id, a.id);
+      expect(b.kcal, a.kcal);
+      expect(b.proteinG, a.proteinG);
+      expect(b.effectiveFrom.toUtc(), a.effectiveFrom.toUtc());
+      expect(b.createdAt.toUtc(), a.createdAt.toUtc());
+      expect(b.source, a.source);
+    }
   });
 
   test('round-trip: second export after import is byte-identical', () async {
@@ -353,7 +395,8 @@ void main() {
         (await sessions.listAll()).length +
         (await sets.listAll()).length +
         (await routines.listAll()).length +
-        (await routines.listAllExercises()).length;
+        (await routines.listAllExercises()).length +
+        (await dailyTargets.listAll()).length;
 
     // Build a valid payload from the current DB; importing it into the
     // same (non-empty) DB under safe mode must refuse.

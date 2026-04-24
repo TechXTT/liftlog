@@ -33,6 +33,7 @@ import 'package:drift/drift.dart' show Value;
 import '../../data/database.dart';
 import '../../data/enums.dart';
 import '../../data/repositories/body_weight_log_repository.dart';
+import '../../data/repositories/daily_target_repository.dart';
 import '../../data/repositories/exercise_set_repository.dart';
 import '../../data/repositories/food_entry_repository.dart';
 import '../../data/repositories/routine_repository.dart';
@@ -179,6 +180,7 @@ class _ParsedPayload {
     required this.exerciseSets,
     required this.routines,
     required this.routineExercises,
+    required this.dailyTargets,
   });
 
   final List<FoodEntriesCompanion> foodEntries;
@@ -187,6 +189,7 @@ class _ParsedPayload {
   final List<ExerciseSetsCompanion> exerciseSets;
   final List<RoutinesCompanion> routines;
   final List<RoutineExercisesCompanion> routineExercises;
+  final List<DailyTargetsCompanion> dailyTargets;
 
   int get totalRows =>
       foodEntries.length +
@@ -194,7 +197,8 @@ class _ParsedPayload {
       workoutSessions.length +
       exerciseSets.length +
       routines.length +
-      routineExercises.length;
+      routineExercises.length +
+      dailyTargets.length;
 }
 
 _ParseOutcome _parseAndValidate(String jsonPayload) {
@@ -234,15 +238,18 @@ _ParseOutcome _parseAndValidate(String jsonPayload) {
   // Each entity array is optional (empty DB exports as empty list); but
   // if present it must be a List<Map>. We also tolerate the key being
   // absent — treat as empty. `routines` / `routine_exercises` were
-  // added in schema v4 (issue #52) — older export files won't have the
-  // keys, so the tolerant "missing → empty" behavior is what makes the
-  // `format_version` bump unnecessary (pre-v4 payloads remain valid).
+  // added in schema v4 (issue #52) and `daily_targets` in schema v5
+  // (issue #59) — older export files won't have the keys, so the
+  // tolerant "missing → empty" behavior is what keeps the
+  // `format_version` at '1' across those additions (pre-v4/v5 payloads
+  // remain valid).
   final List<FoodEntriesCompanion> foodEntries;
   final List<BodyWeightLogsCompanion> bodyWeightLogs;
   final List<WorkoutSessionsCompanion> workoutSessions;
   final List<ExerciseSetsCompanion> exerciseSets;
   final List<RoutinesCompanion> routines;
   final List<RoutineExercisesCompanion> routineExercises;
+  final List<DailyTargetsCompanion> dailyTargets;
   try {
     foodEntries = _parseList(raw['food_entries'], _parseFoodEntry);
     bodyWeightLogs = _parseList(raw['body_weight_logs'], _parseBodyWeightLog);
@@ -253,6 +260,7 @@ _ParseOutcome _parseAndValidate(String jsonPayload) {
       raw['routine_exercises'],
       _parseRoutineExercise,
     );
+    dailyTargets = _parseList(raw['daily_targets'], _parseDailyTarget);
   } on _MalformedRow catch (e) {
     return _ParseFailure(ImportMalformed(reason: e.reason));
   }
@@ -265,6 +273,7 @@ _ParseOutcome _parseAndValidate(String jsonPayload) {
       exerciseSets: exerciseSets,
       routines: routines,
       routineExercises: routineExercises,
+      dailyTargets: dailyTargets,
     ),
   );
 }
@@ -377,6 +386,34 @@ RoutinesCompanion _parseRoutine(Map<String, dynamic> row) {
     id: Value(id),
     name: name,
     notes: Value(notes),
+    createdAt: createdAt,
+    source: Value(source),
+  );
+}
+
+DailyTargetsCompanion _parseDailyTarget(Map<String, dynamic> row) {
+  final id = _int(row, 'id', 'daily_targets');
+  final kcal = _int(row, 'kcal', 'daily_targets');
+  final proteinG = _double(row, 'protein_g', 'daily_targets');
+  final effectiveFrom = _dateTime(row, 'effective_from', 'daily_targets');
+  final createdAt = _dateTime(row, 'created_at', 'daily_targets');
+  final sourceRaw = _string(row, 'source', 'daily_targets');
+  // `parseSourceName` lives in `lib/data/enums.dart` so the arch
+  // guardrail (features never reference `Source.` directly) holds.
+  final Source source;
+  try {
+    source = parseSourceName(sourceRaw);
+  } on ArgumentError {
+    throw _MalformedRow(
+      'daily_targets.source: unknown enum value "$sourceRaw"',
+    );
+  }
+
+  return DailyTargetsCompanion.insert(
+    id: Value(id),
+    kcal: kcal,
+    proteinG: proteinG,
+    effectiveFrom: effectiveFrom,
     createdAt: createdAt,
     source: Value(source),
   );
@@ -567,6 +604,7 @@ Future<int> _totalRowCount(AppDatabase db) async {
   final sessions = WorkoutSessionRepository(db);
   final sets = ExerciseSetRepository(db);
   final routines = RoutineRepository(db);
+  final dailyTargets = DailyTargetRepository(db);
   final results = await Future.wait<int>([
     foods.listAll().then((l) => l.length),
     weights.listAll().then((l) => l.length),
@@ -574,6 +612,7 @@ Future<int> _totalRowCount(AppDatabase db) async {
     sets.listAll().then((l) => l.length),
     routines.listAll().then((l) => l.length),
     routines.listAllExercises().then((l) => l.length),
+    dailyTargets.listAll().then((l) => l.length),
   ]);
   return results.fold<int>(0, (a, b) => a + b);
 }
@@ -593,6 +632,7 @@ Future<void> _wipeAll(AppDatabase db) async {
   final sessions = WorkoutSessionRepository(db);
   final sets = ExerciseSetRepository(db);
   final routines = RoutineRepository(db);
+  final dailyTargets = DailyTargetRepository(db);
 
   // Child first (exercise_sets). Cascade would also handle this via the
   // sessions' `onDelete: cascade`, but being explicit keeps the step
@@ -615,6 +655,10 @@ Future<void> _wipeAll(AppDatabase db) async {
   for (final r in await routines.listAll()) {
     await routines.delete(r.id);
   }
+  // Daily targets — uses the narrow import-only wipe method because
+  // the repository deliberately does not expose a per-row delete API
+  // (historical integrity — see the repository doc comment).
+  await dailyTargets.deleteAllForImport();
 }
 
 /// Inserts all rows in FK-forward order (parents before children so
@@ -628,6 +672,7 @@ Future<void> _insertAll(AppDatabase db, _ParsedPayload payload) async {
   final sessions = WorkoutSessionRepository(db);
   final sets = ExerciseSetRepository(db);
   final routines = RoutineRepository(db);
+  final dailyTargets = DailyTargetRepository(db);
 
   // food_entries and body_weight_logs have no FK dependencies — order
   // among these two is arbitrary. workout_sessions must precede
@@ -636,7 +681,8 @@ Future<void> _insertAll(AppDatabase db, _ParsedPayload payload) async {
   // by historical seeding, not by this import flow — round-tripping
   // routines currently requires the destination DB to already have
   // the exercise catalog, which mirrors how workout_sessions +
-  // exercise_sets share the session-parent contract).
+  // exercise_sets share the session-parent contract). `daily_targets`
+  // has no FKs to the other entities so its insert order is arbitrary.
   for (final row in payload.foodEntries) {
     await foods.add(row);
   }
@@ -654,5 +700,8 @@ Future<void> _insertAll(AppDatabase db, _ParsedPayload payload) async {
   }
   for (final row in payload.routineExercises) {
     await routines.addExercise(row);
+  }
+  for (final row in payload.dailyTargets) {
+    await dailyTargets.add(row);
   }
 }
