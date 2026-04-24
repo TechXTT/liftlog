@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/app_providers.dart';
+import '../../sources/health_kit/health_source.dart';
+import '../body_weight/body_weight_providers.dart';
 import 'progress_data.dart';
 
 /// Currently selected time window for the Progress tab. Widget state lives in
@@ -13,16 +15,42 @@ final progressWindowProvider =
 /// deterministic. Prod callers get the real time.
 final progressNowProvider = Provider<DateTime>((ref) => DateTime.now());
 
-/// Weight series for the currently-selected window. Uses the one-shot
-/// `listRange` repository method (not `watch*`) so widget tests don't hang
-/// under Drift + fake_async.
+/// Weight series for the currently-selected window. Merges user-entered
+/// Drift rows with HealthKit body-weight samples (issue #49 / S5.2); the
+/// aggregator dedups by local-calendar day with user-entered taking
+/// precedence over any HK sample on the same day.
+///
+/// Uses the one-shot `listRange` repository method (not `watch*`) so
+/// widget tests don't hang under Drift + fake_async. On HK denial /
+/// façade error we pass `[]` — per the `HealthSource` contract, denial
+/// surfaces as an empty list, and any other error is downgraded to the
+/// same fallback so the Progress tab stays usable when HK is unavailable.
+/// HK loads are awaited via `.future` to keep window-switch determinism.
 final weightSeriesProvider = FutureProvider<WeightSeries>((ref) async {
   final window = ref.watch(progressWindowProvider);
   final now = ref.watch(progressNowProvider);
   final range = resolveWindow(window, now: now);
   final repo = ref.watch(bodyWeightLogRepositoryProvider);
   final logs = await repo.listRange(range.from, range.to);
-  return buildWeightSeries(logs);
+
+  // HK-side load: deterministic await (no `.maybeWhen(null: ...)` race) so
+  // window-swap tests see the merged result after a single pumpAndSettle.
+  // On error we downgrade to an empty sample list — HK-unavailable is not
+  // a user-facing failure for the Progress sparkline. The user's own data
+  // still draws.
+  List<HKBodyWeightSample> hkSamples;
+  try {
+    hkSamples = await ref.watch(hkBodyWeightProvider.future);
+  } catch (_) {
+    hkSamples = const <HKBodyWeightSample>[];
+  }
+
+  return buildWeightSeries(
+    userEntered: logs,
+    hkSamples: hkSamples,
+    from: range.from,
+    to: range.to,
+  );
 });
 
 /// Daily kcal series for the currently-selected window.
