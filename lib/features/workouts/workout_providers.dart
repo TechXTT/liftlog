@@ -8,16 +8,39 @@ final workoutSessionsProvider = StreamProvider<List<WorkoutSession>>((ref) {
   return repo.watchAll();
 });
 
-final sessionByIdProvider = StreamProvider.family<WorkoutSession?, int>((ref, id) {
+final sessionByIdProvider = StreamProvider.family<WorkoutSession?, int>((
+  ref,
+  id,
+) {
   final repo = ref.watch(workoutSessionRepositoryProvider);
   return repo.watchById(id);
 });
 
-final setsForSessionProvider =
-    StreamProvider.family<List<ExerciseSet>, int>((ref, id) {
+final setsForSessionProvider = StreamProvider.family<List<ExerciseSet>, int>((
+  ref,
+  id,
+) {
   final repo = ref.watch(exerciseSetRepositoryProvider);
   return repo.watchForSession(id);
 });
+
+/// Streams each set in a session paired with its canonical [Exercise] row
+/// (via the `exercise_id` FK) when one exists. Feeds the grouped session-
+/// detail view (S7.5 / issue #73).
+///
+/// Sets with a null FK surface with `exercise: null`; the feature layer
+/// groups those separately using the raw `exerciseName` and renders a
+/// muted "(legacy)" suffix on the group header. The trust rule that
+/// estimates must be visibly labeled extends to provenance: conflating
+/// canonical and non-canonical rows silently is a trust-rule violation.
+final setsWithExerciseForSessionProvider =
+    StreamProvider.family<List<({ExerciseSet set, Exercise? exercise})>, int>((
+      ref,
+      id,
+    ) {
+      final repo = ref.watch(exerciseSetRepositoryProvider);
+      return repo.watchSessionSetsWithExercise(id);
+    });
 
 /// Feeds the Exercise Set form's recent-exercises chip strip (issue #39).
 ///

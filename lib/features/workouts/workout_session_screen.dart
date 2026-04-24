@@ -18,7 +18,7 @@ class WorkoutSessionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionByIdProvider(sessionId));
-    final sets = ref.watch(setsForSessionProvider(sessionId));
+    final sets = ref.watch(setsWithExerciseForSessionProvider(sessionId));
 
     return Scaffold(
       appBar: AppBar(
@@ -54,33 +54,27 @@ class WorkoutSessionScreen extends ConsumerWidget {
           const Divider(height: 1),
           Expanded(
             child: sets.when(
-              data: (list) => list.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'No sets yet.\nTap + to add one.',
-                          textAlign: TextAlign.center,
-                        ),
+              data: (list) {
+                if (list.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'No sets yet.\nTap + to add one.',
+                        textAlign: TextAlign.center,
                       ),
-                    )
-                  : ListView.separated(
-                      itemCount: list.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final s = list[i];
-                        return ListTile(
-                          title: Text(s.exerciseName),
-                          subtitle: Text(
-                            '${s.reps} reps · ${formatWeight(s.weight, s.weightUnit)} · ${workoutSetStatusLabel(s.status)}',
-                          ),
-                          onTap: () =>
-                              _editSet(context, s, sessionId, list.length),
-                        );
-                      },
                     ),
+                  );
+                }
+                final groups = _groupByExercise(list);
+                return _GroupedSetsList(
+                  groups: groups,
+                  onTapSet: (s) => _editSet(context, s, sessionId, list.length),
+                );
+              },
               loading: () => const SizedBox.shrink(),
-              error: (err, _) => Center(child: Text('Could not load sets: $err')),
+              error: (err, _) =>
+                  Center(child: Text('Could not load sets: $err')),
             ),
           ),
         ],
@@ -92,25 +86,33 @@ class WorkoutSessionScreen extends ConsumerWidget {
     // Use a fresh, synchronous read so we pick the correct next orderIndex
     // even if the stream hasn't emitted the most recent add yet.
     final nextIndex = ref
-            .read(setsForSessionProvider(sessionId))
-            .maybeWhen(data: (l) => l.length, orElse: () => 0);
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ExerciseSetFormScreen(
-        sessionId: sessionId,
-        nextOrderIndex: nextIndex,
+        .read(setsWithExerciseForSessionProvider(sessionId))
+        .maybeWhen(data: (l) => l.length, orElse: () => 0);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExerciseSetFormScreen(
+          sessionId: sessionId,
+          nextOrderIndex: nextIndex,
+        ),
       ),
-    ));
+    );
   }
 
   void _editSet(
-      BuildContext context, ExerciseSet existing, int sessionId, int count) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ExerciseSetFormScreen(
-        sessionId: sessionId,
-        existing: existing,
-        nextOrderIndex: count,
+    BuildContext context,
+    ExerciseSet existing,
+    int sessionId,
+    int count,
+  ) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExerciseSetFormScreen(
+          sessionId: sessionId,
+          existing: existing,
+          nextOrderIndex: count,
+        ),
       ),
-    ));
+    );
   }
 
   Future<void> _editNote(
@@ -130,9 +132,9 @@ class WorkoutSessionScreen extends ConsumerWidget {
           .updateNote(sessionId, next.note);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save note: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save note: $e')));
     }
   }
 
@@ -143,14 +145,14 @@ class WorkoutSessionScreen extends ConsumerWidget {
     if (session == null) return;
     if (session.endedAt != null) return;
     try {
-      await ref.read(workoutSessionRepositoryProvider).update(
-            session.copyWith(endedAt: Value(DateTime.now())),
-          );
+      await ref
+          .read(workoutSessionRepositoryProvider)
+          .update(session.copyWith(endedAt: Value(DateTime.now())));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not end session: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not end session: $e')));
     }
   }
 
@@ -179,16 +181,14 @@ class WorkoutSessionScreen extends ConsumerWidget {
     if (!context.mounted) return;
 
     try {
-      await ref
-          .read(workoutSessionRepositoryProvider)
-          .delete(sessionId);
+      await ref.read(workoutSessionRepositoryProvider).delete(sessionId);
       if (!context.mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete workout: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not delete workout: $e')));
     }
   }
 }
@@ -285,9 +285,9 @@ class _NoteRow extends StatelessWidget {
             child: Text(
               note,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontStyle: FontStyle.italic,
-                    color: Theme.of(context).hintColor,
-                  ),
+                fontStyle: FontStyle.italic,
+                color: Theme.of(context).hintColor,
+              ),
             ),
           ),
         );
@@ -348,8 +348,8 @@ class _NoteEditDialogState extends State<_NoteEditDialog> {
           child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: () => Navigator.of(context)
-              .pop(_NoteDialogResult(_controller.text)),
+          onPressed: () =>
+              Navigator.of(context).pop(_NoteDialogResult(_controller.text)),
           child: const Text('Save'),
         ),
       ],
@@ -361,4 +361,191 @@ String _formatTime(DateTime t) {
   final h = t.hour.toString().padLeft(2, '0');
   final m = t.minute.toString().padLeft(2, '0');
   return '$h:$m';
+}
+
+/// One exercise's worth of sets, surfaced to the grouped list widget.
+///
+/// [displayName] is the canonical `Exercise.name` when [isLegacy] is
+/// false, and the row's raw `exerciseName` when [isLegacy] is true.
+/// [isLegacy] flips on whenever a group was formed from sets whose
+/// `exercise_id` FK is null — the S5.1 backfill couldn't match them
+/// to a canonical row. The UI renders a muted "(legacy)" suffix in
+/// that case (visible provenance label, per the trust rule that
+/// estimates / best-effort resolution must be visibly marked).
+///
+/// [sets] preserves the input `orderIndex` ordering; [minOrderIndex]
+/// is used to order the groups themselves on screen.
+class _ExerciseGroup {
+  const _ExerciseGroup({
+    required this.displayName,
+    required this.isLegacy,
+    required this.sets,
+    required this.minOrderIndex,
+  });
+
+  final String displayName;
+  final bool isLegacy;
+  final List<ExerciseSet> sets;
+  final int minOrderIndex;
+}
+
+/// Groups a list of (set, exercise?) tuples into per-exercise buckets.
+///
+/// Grouping rules (S7.5 / issue #73):
+/// - Primary key: `exerciseId` when non-null — all sets sharing the FK
+///   land in one group regardless of stored `exerciseName` spelling.
+/// - Fallback key: normalized `exerciseName` (lowercase + trim) for
+///   sets with a null FK. Legacy rows that S5.1 backfill couldn't
+///   match stay isolated in their own groups.
+/// - Groups with a non-null FK and groups keyed by a stripped name
+///   never merge, even if the strings happen to collide — treated as
+///   distinct provenance channels per the trust rule.
+/// - Within a group: preserve input order (caller supplies sets
+///   ordered by `orderIndex` ascending).
+/// - Between groups: order by the minimum `orderIndex` across the
+///   group's sets so "the exercise the user did first" comes first.
+List<_ExerciseGroup> _groupByExercise(
+  List<({ExerciseSet set, Exercise? exercise})> rows,
+) {
+  // Key per bucket — canonical FK groups use `'c:<id>'`; legacy groups
+  // use `'l:<normalized-name>'`. The `c:` / `l:` prefix keeps a
+  // canonical group and a legacy group with the same name from merging.
+  final buckets = <String, _ExerciseGroup>{};
+  final orderedKeys = <String>[]; // insertion-order so ties hold stable.
+
+  for (final r in rows) {
+    final set = r.set;
+    final exercise = r.exercise;
+    final String key;
+    final String displayName;
+    final bool isLegacy;
+    if (exercise != null) {
+      key = 'c:${exercise.id}';
+      displayName = exercise.canonicalName;
+      isLegacy = false;
+    } else {
+      // Fallback: normalize to lowercase + trim so "bench press" and
+      // " Bench Press " bucket together. Display uses the first
+      // occurrence's raw text (no silent canonicalization of what the
+      // user typed).
+      key = 'l:${set.exerciseName.trim().toLowerCase()}';
+      displayName = set.exerciseName;
+      isLegacy = true;
+    }
+    final existing = buckets[key];
+    if (existing == null) {
+      buckets[key] = _ExerciseGroup(
+        displayName: displayName,
+        isLegacy: isLegacy,
+        sets: [set],
+        minOrderIndex: set.orderIndex,
+      );
+      orderedKeys.add(key);
+    } else {
+      existing.sets.add(set);
+    }
+  }
+
+  final groups = orderedKeys.map((k) => buckets[k]!).toList();
+  // Stable sort by minOrderIndex — insertion-order breaks ties.
+  groups.sort((a, b) => a.minOrderIndex.compareTo(b.minOrderIndex));
+  return groups;
+}
+
+/// Renders the grouped list: one sticky-style header per exercise,
+/// then its sets as `ListTile`s. Built on a flat `ListView.builder`
+/// with a pre-flattened list of (header | tile) items — matches the
+/// prior screen's flat-list simplicity while adding header rows.
+class _GroupedSetsList extends StatelessWidget {
+  const _GroupedSetsList({required this.groups, required this.onTapSet});
+
+  final List<_ExerciseGroup> groups;
+  final void Function(ExerciseSet set) onTapSet;
+
+  @override
+  Widget build(BuildContext context) {
+    // Pre-flatten into a list of heterogeneous items — each is either a
+    // header or a tile — so the ListView.builder doesn't need nested
+    // index arithmetic to locate its row.
+    final items = <_GroupedListItem>[];
+    for (final g in groups) {
+      items.add(_GroupedListItem.header(g));
+      for (final s in g.sets) {
+        items.add(_GroupedListItem.tile(s));
+      }
+    }
+
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, i) {
+        final item = items[i];
+        final header = item.header;
+        if (header != null) {
+          return _ExerciseGroupHeader(group: header);
+        }
+        final s = item.set!;
+        return ListTile(
+          title: Text(s.exerciseName),
+          subtitle: Text(
+            '${s.reps} reps · ${formatWeight(s.weight, s.weightUnit)} · ${workoutSetStatusLabel(s.status)}',
+          ),
+          onTap: () => onTapSet(s),
+        );
+      },
+    );
+  }
+}
+
+/// Heterogeneous list item — either a group header or a set tile.
+/// Kept internal to the file; the flat-list shape inside
+/// [_GroupedSetsList] is an implementation detail.
+class _GroupedListItem {
+  const _GroupedListItem._({this.header, this.set});
+  factory _GroupedListItem.header(_ExerciseGroup g) =>
+      _GroupedListItem._(header: g);
+  factory _GroupedListItem.tile(ExerciseSet s) => _GroupedListItem._(set: s);
+
+  final _ExerciseGroup? header;
+  final ExerciseSet? set;
+}
+
+/// Section header rendered above each group of sets. Uses the app's
+/// M3 `colorScheme.onSurfaceVariant` for the muted "(legacy)" suffix
+/// on fallback groups — matches `SourceBadge` (the other muted-neutral
+/// provenance signal in the UI).
+class _ExerciseGroupHeader extends StatelessWidget {
+  const _ExerciseGroupHeader({required this.group});
+
+  final _ExerciseGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Flexible(
+            child: Text(
+              group.displayName,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (group.isLegacy) ...[
+            const SizedBox(width: 6),
+            Text(
+              '(legacy)',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
