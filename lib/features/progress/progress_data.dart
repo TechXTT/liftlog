@@ -1,5 +1,6 @@
 import '../../data/database.dart';
 import '../../data/enums.dart';
+import '../../sources/health_kit/health_source.dart';
 
 /// Time-window selector for the Progress tab. Enumerated exhaustively; never
 /// fall through to a default case.
@@ -7,10 +8,22 @@ enum ProgressWindow { sevenDays, thirtyDays, all }
 
 /// A single point on the weight sparkline. Kept portable (no UI types) so the
 /// aggregator can stay a pure-Dart function that's trivial to unit test.
+///
+/// `isFromHealthKit` is a feature-local provenance flag — deliberately NOT a
+/// `Source.` value. Feature code never constructs `Source` values raw (see
+/// the arch guardrail in `test/arch/data_access_boundary_test.dart` and the
+/// canonical-enum-non-conflation rule in CLAUDE.md). The flag is true iff
+/// the point was sourced from a HealthKit sample rather than a user-entered
+/// Drift row.
 class WeightPoint {
-  const WeightPoint({required this.timestamp, required this.value});
+  const WeightPoint({
+    required this.timestamp,
+    required this.value,
+    this.isFromHealthKit = false,
+  });
   final DateTime timestamp;
   final double value;
+  final bool isFromHealthKit;
 }
 
 /// Output of the weight aggregator. `dominantUnit` is the unit the sparkline
@@ -116,35 +129,138 @@ DateTime _mondayOf(DateTime t) {
   return DateTime(day.year, day.month, day.day - (day.weekday - 1));
 }
 
-/// Builds a [WeightSeries] from raw logs. Responsibilities:
+/// Internal merged record for one day of weight data. Carries the unit
+/// alongside the value + provenance so the dominant-unit filter downstream
+/// can see both user-entered rows and HK samples through the same shape.
+class _MergedWeight {
+  const _MergedWeight({
+    required this.timestamp,
+    required this.value,
+    required this.unit,
+    required this.isFromHealthKit,
+  });
+  final DateTime timestamp;
+  final double value;
+  final WeightUnit unit;
+  final bool isFromHealthKit;
+}
+
+/// Builds a [WeightSeries] from user-entered logs and HealthKit samples.
 ///
-/// 1. Pick a dominant unit. If logs are in more than one unit, the most recent
-///    log wins — this is what the "Mixed units — showing kg only" banner
-///    reflects. Never silently convert (trust rule).
-/// 2. Filter to only that unit's points.
-/// 3. Sort chronologically so the painter can walk left-to-right.
+/// Responsibilities:
+///
+/// 1. Day-bucket dedup: for each local-calendar day, a user-entered log wins
+///    over any HK sample (data-source precedence `user_entered` >
+///    `saved_template` > `default` — HK is effectively the `default` lane
+///    here). When both are present on the same day, only the user-entered
+///    row contributes. When multiple HK samples land on the same day, the
+///    most recent sample wins.
+/// 2. Pick a dominant unit against the merged set. If the merged day-buckets
+///    carry more than one unit, the most recent bucket's unit wins — this is
+///    what the "Mixed units — showing kg only" banner reflects. Never
+///    silently convert (trust rule).
+/// 3. Filter to only that unit's points.
+/// 4. Sort chronologically so the painter can walk left-to-right. Stamp each
+///    [WeightPoint] with `isFromHealthKit` so the widget layer can surface a
+///    HealthKit badge without re-interrogating the repositories.
+///
+/// [isFromHealthKit] is a feature-local provenance flag — deliberately NOT a
+/// `Source.` value. Feature code never constructs `Source` values raw (see
+/// the arch guardrail + the canonical-enum non-conflation rule in CLAUDE.md).
 ///
 /// Keeping this in the aggregator (not the widget) means:
-/// - The "mixed unit" behavior is unit-testable without pumping widgets.
+/// - The "mixed unit" and "HK/user dedup" behavior is unit-testable without
+///   pumping widgets.
 /// - The sparkline painter receives a single-unit list and doesn't need to
 ///   know about [WeightUnit] at all.
-WeightSeries buildWeightSeries(List<BodyWeightLog> logs) {
-  if (logs.isEmpty) {
-    return const WeightSeries(points: [], dominantUnit: null, mixedUnits: false);
+WeightSeries buildWeightSeries({
+  required List<BodyWeightLog> userEntered,
+  required List<HKBodyWeightSample> hkSamples,
+  required DateTime from,
+  required DateTime to,
+}) {
+  // --- Build the day-keyed merge map. ---
+  // User-entered wins per the data-source precedence rule, so we layer
+  // user-entered over HK rather than the other way around. HK samples are
+  // kept newest-wins per-day before merging so a single day with multiple
+  // HK readings collapses to one bucket deterministically.
+  final merged = <DateTime, _MergedWeight>{};
+
+  // Pass 1: HK samples, keeping the most recent sample per day. `isBefore`
+  // is strict, so ties resolve to whichever we saw second — we prefer to be
+  // explicit and compare timestamps directly.
+  for (final s in hkSamples) {
+    final day = _dayOf(s.timestamp);
+    final existing = merged[day];
+    if (existing == null || s.timestamp.isAfter(existing.timestamp)) {
+      merged[day] = _MergedWeight(
+        timestamp: s.timestamp,
+        value: s.value,
+        unit: s.unit,
+        isFromHealthKit: true,
+      );
+    }
   }
 
-  // Find the most-recent-log unit — that's the one we show.
-  final sortedDesc = [...logs]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  // Pass 2: user-entered logs. These overwrite any HK bucket on the same
+  // day — data-source precedence. If two user-entered logs land on the
+  // same day, keep the most recent one (mirrors the HK newest-wins rule
+  // so "which value shows up on the sparkline" is consistent).
+  for (final l in userEntered) {
+    final day = _dayOf(l.timestamp);
+    final existing = merged[day];
+    if (existing == null ||
+        existing.isFromHealthKit ||
+        l.timestamp.isAfter(existing.timestamp)) {
+      merged[day] = _MergedWeight(
+        timestamp: l.timestamp,
+        value: l.value,
+        unit: l.unit,
+        isFromHealthKit: false,
+      );
+    }
+  }
+
+  // The `from`/`to` params are part of the signature so callers don't have
+  // to filter themselves, but the merge above is already bounded by the
+  // data the provider hands us (both sides are fetched against the same
+  // window). The explicit params also future-proof the function if a caller
+  // ever passes unfiltered inputs. Apply them defensively — drop any bucket
+  // whose day falls outside `[_dayOf(from), _dayOf(to))`.
+  final fromDay = _dayOf(from);
+  final toDay = _dayOf(to);
+  final bounded = <_MergedWeight>[
+    for (final e in merged.values)
+      if (!_dayOf(e.timestamp).isBefore(fromDay) &&
+          _dayOf(e.timestamp).isBefore(toDay))
+        e,
+  ];
+
+  if (bounded.isEmpty) {
+    return const WeightSeries(
+      points: [],
+      dominantUnit: null,
+      mixedUnits: false,
+    );
+  }
+
+  // Most-recent bucket's unit is the one we show.
+  final sortedDesc = [...bounded]
+    ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
   final dominant = sortedDesc.first.unit;
 
-  final hasKg = logs.any((l) => l.unit == WeightUnit.kg);
-  final hasLb = logs.any((l) => l.unit == WeightUnit.lb);
+  final hasKg = bounded.any((e) => e.unit == WeightUnit.kg);
+  final hasLb = bounded.any((e) => e.unit == WeightUnit.lb);
   final mixed = hasKg && hasLb;
 
-  final filtered = logs.where((l) => l.unit == dominant).toList()
+  final filtered = bounded.where((e) => e.unit == dominant).toList()
     ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
   final points = filtered
-      .map((l) => WeightPoint(timestamp: l.timestamp, value: l.value))
+      .map((e) => WeightPoint(
+            timestamp: e.timestamp,
+            value: e.value,
+            isFromHealthKit: e.isFromHealthKit,
+          ))
       .toList();
 
   return WeightSeries(

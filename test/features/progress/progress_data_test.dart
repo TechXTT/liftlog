@@ -3,9 +3,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/enums.dart';
 import 'package:liftlog_app/features/progress/progress_data.dart';
+import 'package:liftlog_app/sources/health_kit/health_source.dart';
 
 BodyWeightLog _weight(DateTime t, double v, WeightUnit u) =>
     BodyWeightLog(id: 1, timestamp: t, value: v, unit: u, source: Source.userEntered);
+
+HKBodyWeightSample _hk(
+  DateTime t,
+  double v,
+  WeightUnit u, {
+  String sourceId = 'com.apple.Health',
+}) =>
+    HKBodyWeightSample(sourceId: sourceId, timestamp: t, value: v, unit: u);
+
+// Wide default window covering every test date used below. Individual tests
+// can still pass their own bounds where the boundary matters.
+final _windowFrom = DateTime(2026, 1, 1);
+final _windowTo = DateTime(2026, 5, 1);
 
 FoodEntry _food(DateTime t, int kcal) => FoodEntry(
       id: 1,
@@ -86,7 +100,12 @@ void main() {
 
   group('buildWeightSeries', () {
     test('empty logs yields empty series with no dominant unit', () {
-      final s = buildWeightSeries(const []);
+      final s = buildWeightSeries(
+        userEntered: const [],
+        hkSamples: const [],
+        from: _windowFrom,
+        to: _windowTo,
+      );
       expect(s.isEmpty, isTrue);
       expect(s.dominantUnit, isNull);
       expect(s.mixedUnits, isFalse);
@@ -94,22 +113,37 @@ void main() {
     });
 
     test('single-unit logs: no mixed flag, dominant = that unit', () {
-      final s = buildWeightSeries([
-        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
-      ]);
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: _windowFrom,
+        to: _windowTo,
+      );
       expect(s.dominantUnit, WeightUnit.kg);
       expect(s.mixedUnits, isFalse);
       expect(s.points.length, 2);
       expect(s.hasEnoughForSparkline, isTrue);
+      expect(
+        s.points.every((p) => !p.isFromHealthKit),
+        isTrue,
+        reason: 'all user-entered → no HK flag on any point',
+      );
     });
 
     test('sorts points chronologically regardless of input order', () {
-      final s = buildWeightSeries([
-        _weight(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 18), 79.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
-      ]);
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 18), 79.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: _windowFrom,
+        to: _windowTo,
+      );
       expect(
         s.points.map((p) => p.timestamp).toList(),
         [
@@ -122,11 +156,16 @@ void main() {
 
     test('mixed units: dominant = most recent unit, others dropped', () {
       // Most recent is kg → dominant kg, the lb point is dropped.
-      final s = buildWeightSeries([
-        _weight(DateTime(2026, 4, 18), 176.0, WeightUnit.lb),
-        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
-      ]);
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 18), 176.0, WeightUnit.lb),
+          _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: _windowFrom,
+        to: _windowTo,
+      );
       expect(s.dominantUnit, WeightUnit.kg);
       expect(s.mixedUnits, isTrue);
       expect(s.points.length, 2);
@@ -135,14 +174,123 @@ void main() {
     });
 
     test('mixed units, most recent is lb: drops kg points', () {
-      final s = buildWeightSeries([
-        _weight(DateTime(2026, 4, 18), 80.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 22), 176.0, WeightUnit.lb),
-      ]);
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 18), 80.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 22), 176.0, WeightUnit.lb),
+        ],
+        hkSamples: const [],
+        from: _windowFrom,
+        to: _windowTo,
+      );
       expect(s.dominantUnit, WeightUnit.lb);
       expect(s.mixedUnits, isTrue);
       expect(s.points.length, 1);
       expect(s.points.single.value, 176.0);
+    });
+
+    test(
+        'same-day dedup: user-entered wins over HK sample '
+        '(data-source precedence)', () {
+      // Both sides land on 4/20. Per the data-source precedence rule
+      // (user_entered > saved_template > default), the user-entered row
+      // wins — we never surface the HK value for that day.
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 20, 8), 80.5, WeightUnit.kg),
+        ],
+        hkSamples: [
+          _hk(DateTime(2026, 4, 20, 7), 79.9, WeightUnit.kg),
+        ],
+        from: _windowFrom,
+        to: _windowTo,
+      );
+      expect(s.points.length, 1);
+      expect(s.points.single.value, 80.5,
+          reason: 'user-entered wins, HK value is dropped');
+      expect(s.points.single.isFromHealthKit, isFalse);
+    });
+
+    test(
+        'different-day merge: 2 points, isFromHealthKit flags match their '
+        'origin', () {
+      // User-entered on 4/20, HK on 4/22 → both survive as separate days.
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+        ],
+        hkSamples: [
+          _hk(DateTime(2026, 4, 22), 80.5, WeightUnit.kg),
+        ],
+        from: _windowFrom,
+        to: _windowTo,
+      );
+      expect(s.points.length, 2);
+      // Chronological: 4/20 first, 4/22 second.
+      expect(s.points[0].timestamp, DateTime(2026, 4, 20));
+      expect(s.points[0].isFromHealthKit, isFalse);
+      expect(s.points[1].timestamp, DateTime(2026, 4, 22));
+      expect(s.points[1].isFromHealthKit, isTrue);
+    });
+
+    test('HK-only day: single point with isFromHealthKit true', () {
+      // No user-entered data at all — the HK sample contributes a point.
+      final s = buildWeightSeries(
+        userEntered: const [],
+        hkSamples: [
+          _hk(DateTime(2026, 4, 21), 79.8, WeightUnit.kg),
+          _hk(DateTime(2026, 4, 23), 80.0, WeightUnit.kg),
+        ],
+        from: _windowFrom,
+        to: _windowTo,
+      );
+      expect(s.points.length, 2);
+      expect(s.points.every((p) => p.isFromHealthKit), isTrue);
+      expect(s.dominantUnit, WeightUnit.kg);
+      expect(s.mixedUnits, isFalse);
+    });
+
+    test('mixed units across HK + user-entered triggers the banner', () {
+      // HK sample is lb, user-entered is kg, different days → merged set
+      // carries both units → mixedUnits true. Most recent is user-entered
+      // kg → dominant kg → lb HK point drops out.
+      final s = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 22), 80.0, WeightUnit.kg),
+        ],
+        hkSamples: [
+          _hk(DateTime(2026, 4, 18), 176.0, WeightUnit.lb),
+        ],
+        from: _windowFrom,
+        to: _windowTo,
+      );
+      expect(s.mixedUnits, isTrue);
+      expect(s.dominantUnit, WeightUnit.kg);
+      expect(s.points.length, 1);
+      expect(s.points.single.value, 80.0,
+          reason: 'lb HK value must drop out — never silently converted');
+      expect(s.points.single.isFromHealthKit, isFalse);
+    });
+
+    test(
+        'multiple HK samples same day → newest wins (and carries the HK flag)',
+        () {
+      // Three HK samples on 4/21 at 07:00, 12:30 and 19:45. The 19:45
+      // reading is the most recent and is the one that must surface.
+      final s = buildWeightSeries(
+        userEntered: const [],
+        hkSamples: [
+          _hk(DateTime(2026, 4, 21, 7), 79.5, WeightUnit.kg),
+          _hk(DateTime(2026, 4, 21, 19, 45), 79.9, WeightUnit.kg),
+          _hk(DateTime(2026, 4, 21, 12, 30), 79.7, WeightUnit.kg),
+        ],
+        from: _windowFrom,
+        to: _windowTo,
+      );
+      expect(s.points.length, 1);
+      expect(s.points.single.value, 79.9,
+          reason: 'newest HK sample for the day wins');
+      expect(s.points.single.isFromHealthKit, isTrue);
     });
   });
 
@@ -402,10 +550,15 @@ void main() {
         _foodWithProtein(DateTime(2026, 4, 19, 12), 700, 40.0),
         _foodWithProtein(DateTime(2026, 4, 23, 13), 1400, 80.0),
       ];
-      final weight = buildWeightSeries([
-        _weight(DateTime(2026, 4, 17), 80.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 23), 80.7, WeightUnit.kg),
-      ]);
+      final weight = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 17), 80.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 23), 80.7, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: range.from,
+        to: range.to,
+      );
       final session = _sessionWithEnd(
         1,
         DateTime(2026, 4, 22, 18),
@@ -458,7 +611,12 @@ void main() {
     });
 
     test('empty window: averages null, delta null, sessions 0', () {
-      final weight = buildWeightSeries(const []);
+      final weight = buildWeightSeries(
+        userEntered: const [],
+        hkSamples: const [],
+        from: range.from,
+        to: range.to,
+      );
       final s = buildProgressSummary(
         foods: const [],
         weightSeries: weight,
@@ -475,11 +633,16 @@ void main() {
 
     test('single-unit delta: last minus first in dominant unit', () {
       // 3 kg points inside the window. Delta = 81.0 - 80.0 = 1.0 kg.
-      final weight = buildWeightSeries([
-        _weight(DateTime(2026, 4, 17), 80.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 20), 80.5, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 23), 81.0, WeightUnit.kg),
-      ]);
+      final weight = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 17), 80.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 20), 80.5, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 23), 81.0, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: range.from,
+        to: range.to,
+      );
       final s = buildProgressSummary(
         foods: const [],
         weightSeries: weight,
@@ -495,11 +658,16 @@ void main() {
         () {
       // Trust rule: don't fabricate a delta that crosses kg↔lb, even if we
       // could filter to the dominant unit and have 2+ points left.
-      final weight = buildWeightSeries([
-        _weight(DateTime(2026, 4, 17), 176.0, WeightUnit.lb),
-        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
-        _weight(DateTime(2026, 4, 23), 80.5, WeightUnit.kg),
-      ]);
+      final weight = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 17), 176.0, WeightUnit.lb),
+          _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+          _weight(DateTime(2026, 4, 23), 80.5, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: range.from,
+        to: range.to,
+      );
       expect(weight.mixedUnits, isTrue); // sanity check
       final s = buildProgressSummary(
         foods: const [],
@@ -513,9 +681,14 @@ void main() {
     });
 
     test('single weight point: delta is null', () {
-      final weight = buildWeightSeries([
-        _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
-      ]);
+      final weight = buildWeightSeries(
+        userEntered: [
+          _weight(DateTime(2026, 4, 20), 80.0, WeightUnit.kg),
+        ],
+        hkSamples: const [],
+        from: range.from,
+        to: range.to,
+      );
       final s = buildProgressSummary(
         foods: const [],
         weightSeries: weight,

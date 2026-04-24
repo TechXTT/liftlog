@@ -17,6 +17,8 @@ import 'package:liftlog_app/features/progress/summary_card.dart';
 import 'package:liftlog_app/features/progress/weekly_volume_bars.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
 import 'package:liftlog_app/shell/root_shell.dart';
+import 'package:liftlog_app/sources/health_kit/health_source.dart';
+import 'package:liftlog_app/sources/health_kit/health_source_fake.dart';
 
 void main() {
   late AppDatabase db;
@@ -31,10 +33,16 @@ void main() {
 
   tearDown(() async => db.close());
 
+  // Default HK override: not-authorized fake so nothing in the test tree
+  // reaches a real HealthKit channel. Individual tests can pass `extra`
+  // with their own HK override to inject samples.
   Widget app({List<Override> extra = const []}) => ProviderScope(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           progressNowProvider.overrideWithValue(fakeNow),
+          healthSourceProvider.overrideWithValue(
+            HealthSourceFake.notAuthorized(),
+          ),
           ...extra,
         ],
         child: const MaterialApp(home: ProgressScreen()),
@@ -47,6 +55,9 @@ void main() {
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           progressNowProvider.overrideWithValue(fakeNow),
+          healthSourceProvider.overrideWithValue(
+            HealthSourceFake.notAuthorized(),
+          ),
         ],
         child: const MaterialApp(home: RootShell()),
       ),
@@ -175,6 +186,67 @@ void main() {
     expect(w.points.length, 2);
     expect(w.points.every((p) => p.value < 100), isTrue,
         reason: 'lb value 176 must be dropped, never silently converted');
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets(
+      'HK samples merge into the sparkline, day-bucket dedup keeps the '
+      'user-entered row on its day', (tester) async {
+    // 1 user-entered kg row on 4/20. 2 HK samples: one on 4/18 (HK-only day
+    // → should surface with isFromHealthKit=true) and one on 4/20 (same day
+    // as the user row → user-entered wins per data-source precedence, so
+    // this HK reading must NOT appear in the merged series).
+    final wRepo = BodyWeightLogRepository(db);
+    await wRepo.add(BodyWeightLogsCompanion.insert(
+      timestamp: DateTime(2026, 4, 20, 10),
+      value: 80.5,
+      unit: WeightUnit.kg,
+    ));
+
+    final hkSamples = [
+      HKBodyWeightSample(
+        sourceId: 'com.apple.Health',
+        timestamp: DateTime(2026, 4, 18, 8),
+        value: 80.0,
+        unit: WeightUnit.kg,
+      ),
+      HKBodyWeightSample(
+        sourceId: 'com.apple.Health',
+        timestamp: DateTime(2026, 4, 20, 7),
+        value: 79.9,
+        unit: WeightUnit.kg,
+      ),
+    ];
+
+    await tester.pumpWidget(app(extra: [
+      healthSourceProvider.overrideWithValue(
+        HealthSourceFake.authorized(hkSamples),
+      ),
+    ]));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ProgressScreen)),
+    );
+    final w = await container.read(weightSeriesProvider.future);
+
+    // 2 points total: 4/18 HK + 4/20 user-entered. 4/20 HK reading dropped
+    // by day-bucket dedup (user-entered wins).
+    expect(w.points.length, 2);
+    expect(w.dominantUnit, WeightUnit.kg);
+    expect(w.mixedUnits, isFalse);
+
+    // Chronological order. 4/18 is HK, 4/20 is user-entered (value 80.5,
+    // not 79.9 — the HK reading for that day was dropped).
+    expect(w.points[0].timestamp, DateTime(2026, 4, 18, 8));
+    expect(w.points[0].isFromHealthKit, isTrue);
+    expect(w.points[0].value, 80.0);
+
+    expect(w.points[1].timestamp, DateTime(2026, 4, 20, 10));
+    expect(w.points[1].isFromHealthKit, isFalse);
+    expect(w.points[1].value, 80.5,
+        reason: 'user-entered row wins on 4/20; HK reading dropped');
 
     await _drainDriftTimers(tester);
   });
