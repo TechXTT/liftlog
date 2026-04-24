@@ -40,10 +40,68 @@ class ExerciseSetRepository {
   /// ascending for deterministic output. Added for the data-export flow
   /// (issue #37) which needs a flat dump of all rows; the other
   /// `watch*`/`list*` pairs on this repository are session-scoped.
-  Future<List<ExerciseSet>> listAll() =>
-      (_db.select(_db.exerciseSets)
-            ..orderBy([(t) => OrderingTerm.asc(t.id)]))
-          .get();
+  Future<List<ExerciseSet>> listAll() => (_db.select(
+    _db.exerciseSets,
+  )..orderBy([(t) => OrderingTerm.asc(t.id)])).get();
+
+  /// Streams every set for [sessionId], each paired with its canonical
+  /// [Exercise] row (via the `exercise_id` FK) when one exists.
+  ///
+  /// Sets are ordered by `orderIndex` ascending — the authoritative
+  /// within-session ordering — so callers can group them by
+  /// exercise and still preserve the user's recorded sequence within
+  /// each group.
+  ///
+  /// Uses a LEFT OUTER JOIN so legacy sets with `exercise_id = NULL`
+  /// still surface with `exercise: null`; the feature layer renders
+  /// those as a fallback group using the set's raw `exerciseName`
+  /// (S7.5 / issue #73). Silent data loss — dropping rows whose FK
+  /// didn't backfill — is a trust-rule violation.
+  Stream<List<({ExerciseSet set, Exercise? exercise})>>
+  watchSessionSetsWithExercise(int sessionId) {
+    final query =
+        _db.select(_db.exerciseSets).join([
+            leftOuterJoin(
+              _db.exercises,
+              _db.exercises.id.equalsExp(_db.exerciseSets.exerciseId),
+            ),
+          ])
+          ..where(_db.exerciseSets.sessionId.equals(sessionId))
+          ..orderBy([OrderingTerm.asc(_db.exerciseSets.orderIndex)]);
+    return query.watch().map(
+      (rows) => [
+        for (final r in rows)
+          (
+            set: r.readTable(_db.exerciseSets),
+            exercise: r.readTableOrNull(_db.exercises),
+          ),
+      ],
+    );
+  }
+
+  /// One-shot sibling of [watchSessionSetsWithExercise]. Widget tests
+  /// use this to avoid the Drift + fake_async hang on stream reads
+  /// (see `vault/05 Architecture/Skills.md` — Drift + fake_async).
+  Future<List<({ExerciseSet set, Exercise? exercise})>>
+  listSessionSetsWithExercise(int sessionId) async {
+    final query =
+        _db.select(_db.exerciseSets).join([
+            leftOuterJoin(
+              _db.exercises,
+              _db.exercises.id.equalsExp(_db.exerciseSets.exerciseId),
+            ),
+          ])
+          ..where(_db.exerciseSets.sessionId.equals(sessionId))
+          ..orderBy([OrderingTerm.asc(_db.exerciseSets.orderIndex)]);
+    final rows = await query.get();
+    return [
+      for (final r in rows)
+        (
+          set: r.readTable(_db.exerciseSets),
+          exercise: r.readTableOrNull(_db.exercises),
+        ),
+    ];
+  }
 
   /// Returns up to [limit] distinct exercise names across all sessions,
   /// ordered by most recent use (newest first).
