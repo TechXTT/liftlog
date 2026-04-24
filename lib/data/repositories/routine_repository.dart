@@ -95,6 +95,18 @@ class RoutineRepository {
   Future<int> addExercise(RoutineExercisesCompanion exercise) =>
       _db.into(_db.routineExercises).insert(exercise);
 
+  /// Deletes a single routine-exercise line item by id.
+  ///
+  /// Added (#61) for the routine form's "save = wipe-and-rewrite" flow
+  /// on edit: after the user reorders / adds / removes rows in the
+  /// in-memory draft, the form deletes every existing line item and
+  /// re-inserts the draft rows in order. Scoped by line-item id so the
+  /// caller can target exactly the rows they want to remove.
+  Future<int> deleteExercise(int lineItemId) =>
+      (_db.delete(
+        _db.routineExercises,
+      )..where((t) => t.id.equals(lineItemId))).go();
+
   /// Rewrites `orderIndex` on every row in [exerciseIds] for the
   /// routine [routineId], in the order the caller supplied. The update
   /// runs inside a single Drift transaction so a partial reorder is

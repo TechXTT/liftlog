@@ -47,6 +47,15 @@ class ExerciseRepository {
         ..limit(1))
       .getSingleOrNull();
 
+  /// Returns the row with `id`, or `null` if no row matches.
+  ///
+  /// Added (#61) for the start-workout-from-routine flow, which reads
+  /// `RoutineExercise.exerciseId` and needs the canonical name to seed
+  /// `ExerciseSet.exerciseName`. Mirrors `findByName` (exact-match,
+  /// single-row, null on miss).
+  Future<Exercise?> findById(int id) =>
+      (_db.select(_db.exercises)..where((t) => t.id.equals(id))).getSingleOrNull();
+
   /// Feature-facing convenience entry point for the set form's canonical
   /// picker (issue #60).
   ///
