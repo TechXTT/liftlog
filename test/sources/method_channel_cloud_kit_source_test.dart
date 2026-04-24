@@ -147,4 +147,299 @@ void main() {
       );
     });
   });
+
+  group('saveRecord — wire encoding', () {
+    test('encodes one field of each of the 5 supported types', () async {
+      MethodCall? observed;
+      mockChannel((call) async {
+        observed = call;
+        return null;
+      });
+      final source = MethodChannelCloudKitSource();
+      final when = DateTime.utc(2026, 4, 24, 18, 30, 45, 789);
+      final record = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {
+          'title': const CKString('evening session'),
+          'reps': const CKInt(12),
+          'weightKg': const CKDouble(102.5),
+          'wasPr': const CKBool(true),
+          'when': CKDateTime(when),
+        },
+      );
+
+      await source.saveRecord(record);
+
+      expect(observed, isNotNull);
+      expect(observed!.method, 'saveRecord');
+      final args = observed!.arguments as Map;
+      expect(args['recordType'], 'HealthSpike');
+      expect(args['recordName'], 'spike-1');
+      final fields = args['fields'] as Map;
+
+      expect(fields['title'], equals(['string', 'evening session']));
+      expect(fields['reps'], equals(['int', 12]));
+      expect(fields['weightKg'], equals(['double', 102.5]));
+      expect(fields['wasPr'], equals(['bool', true]));
+      expect(fields['when'], equals(['dateTime', when.millisecondsSinceEpoch]));
+    });
+
+    test('PlatformException on save → CloudKitChannelError', () async {
+      mockChannel((_) async {
+        throw PlatformException(
+          code: 'CK_SAVE_RECORD_FAILED',
+          message: 'network unavailable',
+          details: 'nserror-details',
+        );
+      });
+      final source = MethodChannelCloudKitSource();
+      await expectLater(
+        () => source.saveRecord(
+          const CloudKitRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+            fields: {'v': CKInt(1)},
+          ),
+        ),
+        throwsA(
+          isA<CloudKitChannelError>().having(
+            (e) => e.code,
+            'code',
+            'CK_SAVE_RECORD_FAILED',
+          ),
+        ),
+      );
+    });
+  });
+
+  group('getRecord — wire decoding', () {
+    test('decodes each typeTag to the correct CloudKitValue subtype', () async {
+      final whenMs = DateTime.utc(
+        2026,
+        4,
+        24,
+        18,
+        30,
+        45,
+        789,
+      ).millisecondsSinceEpoch;
+      mockChannel((call) async {
+        expect(call.method, 'getRecord');
+        final args = call.arguments as Map;
+        expect(args['recordType'], 'HealthSpike');
+        expect(args['recordName'], 'spike-1');
+        return <String, Object?>{
+          'recordType': 'HealthSpike',
+          'recordName': 'spike-1',
+          'fields': <String, Object?>{
+            'title': <Object?>['string', 'evening session'],
+            'reps': <Object?>['int', 12],
+            'weightKg': <Object?>['double', 102.5],
+            'wasPr': <Object?>['bool', true],
+            'when': <Object?>['dateTime', whenMs],
+          },
+        };
+      });
+
+      final source = MethodChannelCloudKitSource();
+      final fetched = await source.getRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+      );
+
+      expect(fetched, isNotNull);
+      expect(fetched!.recordType, 'HealthSpike');
+      expect(fetched.recordName, 'spike-1');
+      expect(fetched.fields['title'], const CKString('evening session'));
+      expect(fetched.fields['reps'], const CKInt(12));
+      expect(fetched.fields['weightKg'], const CKDouble(102.5));
+      expect(fetched.fields['wasPr'], const CKBool(true));
+      expect(
+        (fetched.fields['when']! as CKDateTime).value.millisecondsSinceEpoch,
+        whenMs,
+      );
+      // The decoded DateTime surfaces as UTC — Swift side sends UTC.
+      expect((fetched.fields['when']! as CKDateTime).value.isUtc, isTrue);
+    });
+
+    test(
+      'null channel response → null record (get-by-id "not found")',
+      () async {
+        mockChannel((_) async => null);
+        final source = MethodChannelCloudKitSource();
+        final fetched = await source.getRecord(
+          recordType: 'HealthSpike',
+          recordName: 'missing',
+        );
+        expect(fetched, isNull);
+      },
+    );
+
+    test(
+      'unknown typeTag → CloudKitChannelError (no silent fallback)',
+      () async {
+        mockChannel(
+          (_) async => <String, Object?>{
+            'recordType': 'HealthSpike',
+            'recordName': 'spike-1',
+            'fields': <String, Object?>{
+              'weird': <Object?>['asset', 'file://whatever'],
+            },
+          },
+        );
+        final source = MethodChannelCloudKitSource();
+        await expectLater(
+          () => source.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+          ),
+          throwsA(
+            isA<CloudKitChannelError>().having(
+              (e) => e.code,
+              'code',
+              'CK_UNKNOWN_TYPE_TAG',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'malformed field (not a 2-element list) → CloudKitChannelError',
+      () async {
+        mockChannel(
+          (_) async => <String, Object?>{
+            'recordType': 'HealthSpike',
+            'recordName': 'spike-1',
+            'fields': <String, Object?>{'bad': 'just-a-string'},
+          },
+        );
+        final source = MethodChannelCloudKitSource();
+        await expectLater(
+          () => source.getRecord(
+            recordType: 'HealthSpike',
+            recordName: 'spike-1',
+          ),
+          throwsA(
+            isA<CloudKitChannelError>().having(
+              (e) => e.code,
+              'code',
+              'CK_MALFORMED_FIELD',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('type mismatch for declared tag → CloudKitChannelError', () async {
+      // Tag says "int" but value is a Double. No silent coercion.
+      mockChannel(
+        (_) async => <String, Object?>{
+          'recordType': 'HealthSpike',
+          'recordName': 'spike-1',
+          'fields': <String, Object?>{
+            'reps': <Object?>['int', 3.14],
+          },
+        },
+      );
+      final source = MethodChannelCloudKitSource();
+      await expectLater(
+        () =>
+            source.getRecord(recordType: 'HealthSpike', recordName: 'spike-1'),
+        throwsA(
+          isA<CloudKitChannelError>().having(
+            (e) => e.code,
+            'code',
+            'CK_MALFORMED_FIELD',
+          ),
+        ),
+      );
+    });
+
+    test('response not a Map → CloudKitChannelError', () async {
+      mockChannel((_) async => 'definitely-not-a-map');
+      final source = MethodChannelCloudKitSource();
+      await expectLater(
+        () =>
+            source.getRecord(recordType: 'HealthSpike', recordName: 'spike-1'),
+        throwsA(
+          isA<CloudKitChannelError>().having(
+            (e) => e.code,
+            'code',
+            'CK_MALFORMED_RESPONSE',
+          ),
+        ),
+      );
+    });
+
+    test('PlatformException on get → CloudKitChannelError', () async {
+      mockChannel((_) async {
+        throw PlatformException(
+          code: 'CK_GET_RECORD_FAILED',
+          message: 'boom',
+          details: 'nserror-details',
+        );
+      });
+      final source = MethodChannelCloudKitSource();
+      await expectLater(
+        () =>
+            source.getRecord(recordType: 'HealthSpike', recordName: 'spike-1'),
+        throwsA(
+          isA<CloudKitChannelError>().having(
+            (e) => e.code,
+            'code',
+            'CK_GET_RECORD_FAILED',
+          ),
+        ),
+      );
+    });
+  });
+
+  group('round-trip through encode → decode on the same channel', () {
+    test('every value type survives an encode → decode cycle', () async {
+      // Capture the Dart-side encoded payload, then synthesize a
+      // plausible Swift-side response with the same field shape and
+      // assert decode → original record. This proves the Dart encoder
+      // and Dart decoder agree on the wire contract — the Swift side
+      // is covered by the separate device-verification step.
+      late Map<String, Object?> savedArgs;
+      mockChannel((call) async {
+        if (call.method == 'saveRecord') {
+          savedArgs = Map<String, Object?>.from(call.arguments as Map);
+          return null;
+        }
+        if (call.method == 'getRecord') {
+          // Synthesize the Swift-side response from the save args.
+          return <String, Object?>{
+            'recordType': savedArgs['recordType'],
+            'recordName': savedArgs['recordName'],
+            'fields': savedArgs['fields'],
+          };
+        }
+        return null;
+      });
+
+      final source = MethodChannelCloudKitSource();
+      final original = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {
+          's': const CKString('hello'),
+          'i': const CKInt(9007199254740992),
+          'd': const CKDouble(3.141592653589793),
+          'b': const CKBool(false),
+          't': CKDateTime(DateTime.utc(2026, 4, 24, 12, 34, 56, 789)),
+        },
+      );
+
+      await source.saveRecord(original);
+      final fetched = await source.getRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+      );
+
+      expect(fetched, equals(original));
+    });
+  });
 }

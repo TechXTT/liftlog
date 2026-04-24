@@ -14,6 +14,36 @@
 // * `PlatformError` from the native side is re-typed as
 //   [CloudKitChannelError] so feature code never imports
 //   `package:flutter/services.dart` just to catch a platform error.
+//
+// Wire protocol (S7.2 / #70) — MUST match `CloudKitRecordCodec.swift`:
+//
+//   saveRecord:
+//     args = {
+//       "recordType": String,
+//       "recordName": String,
+//       "fields": Map<String, List> where each value is
+//                 a 2-element List<dynamic> of the form [typeTag, raw],
+//                 typeTag ∈ {"string","int","double","bool","dateTime"},
+//                 raw encoded as:
+//                   "string"   → String
+//                   "int"      → int (Int64 on Swift side)
+//                   "double"   → double
+//                   "bool"     → bool
+//                   "dateTime" → int milliseconds-since-epoch (UTC),
+//                                Swift decodes via
+//                                Date(timeIntervalSince1970: ms/1000.0)
+//     }
+//     returns: null
+//
+//   getRecord:
+//     args    = { "recordType": String, "recordName": String }
+//     returns: null if record does not exist (CKError.unknownItem);
+//              otherwise Map with the same shape as saveRecord's args
+//              (including "recordType" + "recordName" + "fields").
+//
+// Unknown typeTag on decode → [CloudKitChannelError]. No fallback to
+// String: the spike showed that lossy path is exactly the trust-rule
+// violation S7.2 exists to prevent.
 
 import 'package:flutter/services.dart';
 
@@ -32,6 +62,19 @@ const String kCloudKitChannelName = 'dev.techxtt.liftlog/cloudkit';
 /// Method name for the account-status handler. String literal lives here
 /// and on the Swift side only — callers go through the façade.
 const String _kGetAccountStatus = 'getAccountStatus';
+
+/// Method name for `saveRecord`.
+const String _kSaveRecord = 'saveRecord';
+
+/// Method name for `getRecord`.
+const String _kGetRecord = 'getRecord';
+
+// Wire typeTags. Mirrored on the Swift side in `CloudKitRecordCodec`.
+const String _kTagString = 'string';
+const String _kTagInt = 'int';
+const String _kTagDouble = 'double';
+const String _kTagBool = 'bool';
+const String _kTagDateTime = 'dateTime';
 
 class MethodChannelCloudKitSource implements CloudKitSource {
   /// Construct a source backed by the default channel name. Pass
@@ -79,4 +122,223 @@ class MethodChannelCloudKitSource implements CloudKitSource {
     }
     return CloudKitAccountStatus.values[raw];
   }
+
+  @override
+  Future<void> saveRecord(CloudKitRecord record) async {
+    final encodedFields = <String, List<Object?>>{};
+    for (final entry in record.fields.entries) {
+      encodedFields[entry.key] = _encodeValue(entry.value);
+    }
+    try {
+      await _channel.invokeMethod<void>(_kSaveRecord, <String, Object?>{
+        'recordType': record.recordType,
+        'recordName': record.recordName,
+        'fields': encodedFields,
+      });
+    } on PlatformException catch (e) {
+      throw CloudKitChannelError(
+        code: e.code,
+        message: e.message ?? '',
+        details: e.details,
+      );
+    }
+  }
+
+  @override
+  Future<CloudKitRecord?> getRecord({
+    required String recordType,
+    required String recordName,
+  }) async {
+    final Object? raw;
+    try {
+      raw = await _channel.invokeMethod<Object?>(_kGetRecord, <String, Object?>{
+        'recordType': recordType,
+        'recordName': recordName,
+      });
+    } on PlatformException catch (e) {
+      throw CloudKitChannelError(
+        code: e.code,
+        message: e.message ?? '',
+        details: e.details,
+      );
+    }
+
+    // Native side returns null for CKError.unknownItem — get-by-id
+    // semantics: "not found" is a value, not an error.
+    if (raw == null) return null;
+
+    if (raw is! Map) {
+      throw CloudKitChannelError(
+        code: 'CK_MALFORMED_RESPONSE',
+        message: 'getRecord expected Map response, got ${raw.runtimeType}',
+        details: raw,
+      );
+    }
+    return _decodeRecord(raw);
+  }
+}
+
+/// Encodes a [CloudKitValue] as its 2-element `[typeTag, raw]` wire
+/// form. Exhaustive switch over the sealed subtype hierarchy — the Dart
+/// analyzer enforces that any future subtype must be handled here.
+List<Object?> _encodeValue(CloudKitValue value) {
+  return switch (value) {
+    CKString(:final value) => <Object?>[_kTagString, value],
+    CKInt(:final value) => <Object?>[_kTagInt, value],
+    CKDouble(:final value) => <Object?>[_kTagDouble, value],
+    CKBool(:final value) => <Object?>[_kTagBool, value],
+    // Milliseconds-since-epoch. `millisecondsSinceEpoch` on a Dart
+    // `DateTime` returns the absolute instant regardless of the
+    // DateTime's `isUtc` flag — exactly what we want on the wire.
+    CKDateTime(:final value) => <Object?>[
+      _kTagDateTime,
+      value.millisecondsSinceEpoch,
+    ],
+  };
+}
+
+/// Decodes a `[typeTag, raw]` wire entry back into a [CloudKitValue].
+///
+/// Unknown typeTag → [CloudKitChannelError]. No silent fallback to
+/// String — the spike showed that's exactly the lossy trap we're here
+/// to prevent.
+CloudKitValue _decodeValue(String fieldName, Object? wire) {
+  if (wire is! List || wire.length != 2) {
+    throw CloudKitChannelError(
+      code: 'CK_MALFORMED_FIELD',
+      message:
+          'field "$fieldName": expected 2-element [typeTag, value] list, '
+          'got ${wire.runtimeType}',
+      details: wire,
+    );
+  }
+  final tag = wire[0];
+  final raw = wire[1];
+  if (tag is! String) {
+    throw CloudKitChannelError(
+      code: 'CK_MALFORMED_FIELD',
+      message:
+          'field "$fieldName": typeTag must be String, got ${tag.runtimeType}',
+      details: wire,
+    );
+  }
+
+  switch (tag) {
+    case _kTagString:
+      if (raw is! String) {
+        throw CloudKitChannelError(
+          code: 'CK_MALFORMED_FIELD',
+          message:
+              'field "$fieldName": typeTag "$tag" expected String value, '
+              'got ${raw.runtimeType}',
+          details: wire,
+        );
+      }
+      return CKString(raw);
+    case _kTagInt:
+      if (raw is! int) {
+        throw CloudKitChannelError(
+          code: 'CK_MALFORMED_FIELD',
+          message:
+              'field "$fieldName": typeTag "$tag" expected int value, '
+              'got ${raw.runtimeType}',
+          details: wire,
+        );
+      }
+      return CKInt(raw);
+    case _kTagDouble:
+      // Swift NSNumber(value: Double) arrives as `double` in the
+      // standard codec. Guard to keep the codec honest.
+      if (raw is! double) {
+        throw CloudKitChannelError(
+          code: 'CK_MALFORMED_FIELD',
+          message:
+              'field "$fieldName": typeTag "$tag" expected double value, '
+              'got ${raw.runtimeType}',
+          details: wire,
+        );
+      }
+      return CKDouble(raw);
+    case _kTagBool:
+      if (raw is! bool) {
+        throw CloudKitChannelError(
+          code: 'CK_MALFORMED_FIELD',
+          message:
+              'field "$fieldName": typeTag "$tag" expected bool value, '
+              'got ${raw.runtimeType}',
+          details: wire,
+        );
+      }
+      return CKBool(raw);
+    case _kTagDateTime:
+      if (raw is! int) {
+        throw CloudKitChannelError(
+          code: 'CK_MALFORMED_FIELD',
+          message:
+              'field "$fieldName": typeTag "$tag" expected int ms-since-epoch, '
+              'got ${raw.runtimeType}',
+          details: wire,
+        );
+      }
+      // Swift sends UTC; surface as UTC on the Dart side. Callers that
+      // want local time can `.toLocal()`.
+      return CKDateTime(DateTime.fromMillisecondsSinceEpoch(raw, isUtc: true));
+    default:
+      throw CloudKitChannelError(
+        code: 'CK_UNKNOWN_TYPE_TAG',
+        message:
+            'field "$fieldName": unknown typeTag "$tag"; expected one of '
+            '$_kTagString, $_kTagInt, $_kTagDouble, $_kTagBool, $_kTagDateTime',
+        details: wire,
+      );
+  }
+}
+
+/// Decodes the top-level `getRecord` response map to [CloudKitRecord].
+CloudKitRecord _decodeRecord(Map<Object?, Object?> raw) {
+  final recordType = raw['recordType'];
+  final recordName = raw['recordName'];
+  final rawFields = raw['fields'];
+  if (recordType is! String) {
+    throw CloudKitChannelError(
+      code: 'CK_MALFORMED_RESPONSE',
+      message: 'getRecord response missing "recordType" String',
+      details: raw,
+    );
+  }
+  if (recordName is! String) {
+    throw CloudKitChannelError(
+      code: 'CK_MALFORMED_RESPONSE',
+      message: 'getRecord response missing "recordName" String',
+      details: raw,
+    );
+  }
+  if (rawFields is! Map) {
+    throw CloudKitChannelError(
+      code: 'CK_MALFORMED_RESPONSE',
+      message:
+          'getRecord response "fields" must be a Map, got '
+          '${rawFields.runtimeType}',
+      details: raw,
+    );
+  }
+  final fields = <String, CloudKitValue>{};
+  for (final entry in rawFields.entries) {
+    final key = entry.key;
+    if (key is! String) {
+      throw CloudKitChannelError(
+        code: 'CK_MALFORMED_RESPONSE',
+        message:
+            'getRecord response field key must be String, got '
+            '${key.runtimeType}',
+        details: raw,
+      );
+    }
+    fields[key] = _decodeValue(key, entry.value);
+  }
+  return CloudKitRecord(
+    recordType: recordType,
+    recordName: recordName,
+    fields: fields,
+  );
 }

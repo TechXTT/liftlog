@@ -14,6 +14,9 @@
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		CE01B71100000001000CE001 /* CloudKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE01B71000000001000CE001 /* CloudKitBridge.swift */; };
 		CE01B71300000001000CE001 /* CloudKitAccountStatusHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE01B71200000001000CE001 /* CloudKitAccountStatusHandler.swift */; };
+		CE01B72100000002000CE002 /* CloudKitRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE01B72000000002000CE002 /* CloudKitRecordCodec.swift */; };
+		CE01B72300000002000CE002 /* SaveRecordHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE01B72200000002000CE002 /* SaveRecordHandler.swift */; };
+		CE01B72500000002000CE002 /* GetRecordHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE01B72400000002000CE002 /* GetRecordHandler.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
@@ -72,6 +75,9 @@
 		FD6AF2C02F9B6D0A00FAF320 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		CE01B71000000001000CE001 /* CloudKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitBridge.swift; sourceTree = "<group>"; };
 		CE01B71200000001000CE001 /* CloudKitAccountStatusHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitAccountStatusHandler.swift; sourceTree = "<group>"; };
+		CE01B72000000002000CE002 /* CloudKitRecordCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitRecordCodec.swift; sourceTree = "<group>"; };
+		CE01B72200000002000CE002 /* SaveRecordHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveRecordHandler.swift; sourceTree = "<group>"; };
+		CE01B72400000002000CE002 /* GetRecordHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GetRecordHandler.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -157,6 +163,9 @@
 			children = (
 				CE01B71000000001000CE001 /* CloudKitBridge.swift */,
 				CE01B71200000001000CE001 /* CloudKitAccountStatusHandler.swift */,
+				CE01B72000000002000CE002 /* CloudKitRecordCodec.swift */,
+				CE01B72200000002000CE002 /* SaveRecordHandler.swift */,
+				CE01B72400000002000CE002 /* GetRecordHandler.swift */,
 			);
 			path = CloudKit;
 			sourceTree = "<group>";
@@ -400,6 +409,9 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				CE01B71100000001000CE001 /* CloudKitBridge.swift in Sources */,
 				CE01B71300000001000CE001 /* CloudKitAccountStatusHandler.swift in Sources */,
+				CE01B72100000002000CE002 /* CloudKitRecordCodec.swift in Sources */,
+				CE01B72300000002000CE002 /* SaveRecordHandler.swift in Sources */,
+				CE01B72500000002000CE002 /* GetRecordHandler.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

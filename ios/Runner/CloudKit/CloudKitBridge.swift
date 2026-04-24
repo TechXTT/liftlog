@@ -13,9 +13,9 @@
 // Trust-rule notes mirroring `cloud_kit_source.dart`:
 // * No silent fallback. Errors surface as `FlutterError` with a typed
 //   code string the Dart side can match.
-// * No record CRUD and no zones in S7.1 — those are S7.2 (#70) and
-//   S7.3 (#71). Do not grow the switch beyond `getAccountStatus` in
-//   this PR.
+// * S7.1 shipped `getAccountStatus`; S7.2 (this file) adds
+//   `saveRecord` + `getRecord` for the typed-record round-trip. Zones
+//   remain S7.3 (#71).
 
 import Flutter
 import Foundation
@@ -37,6 +37,8 @@ public final class CloudKitBridge {
     /// Handlers — one per method name. Kept as lets so each is lazily
     /// final and the dispatch switch stays tiny.
     private let accountStatusHandler = CloudKitAccountStatusHandler()
+    private let saveRecordHandler = SaveRecordHandler()
+    private let getRecordHandler = GetRecordHandler()
 
     /// Binds the CloudKit channel against [binaryMessenger]. Typically
     /// the root `FlutterViewController`'s messenger.
@@ -70,6 +72,10 @@ public final class CloudKitBridge {
         switch call.method {
         case "getAccountStatus":
             accountStatusHandler.handle(arguments: call.arguments, result: result)
+        case "saveRecord":
+            saveRecordHandler.handle(arguments: call.arguments, result: result)
+        case "getRecord":
+            getRecordHandler.handle(arguments: call.arguments, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }

@@ -111,4 +111,232 @@ void main() {
       expect(err.toString(), contains('ns-error-description'));
     });
   });
+
+  group('CloudKitValue — equality + hash', () {
+    test('CKString equality and hash', () {
+      expect(const CKString('a'), const CKString('a'));
+      expect(const CKString('a').hashCode, const CKString('a').hashCode);
+      expect(const CKString('a') == const CKString('b'), isFalse);
+    });
+
+    test('CKInt equality preserves integer precision', () {
+      // Values near Int64.max — these are the ones that would be
+      // silently stringified by the flutter_cloud_kit plugin.
+      const big = CKInt(9007199254740992); // 2^53
+      expect(big, const CKInt(9007199254740992));
+      expect(big == const CKInt(9007199254740993), isFalse);
+    });
+
+    test('CKDouble equality preserves bit pattern', () {
+      const pi = CKDouble(3.141592653589793);
+      expect(pi, const CKDouble(3.141592653589793));
+      expect(pi == const CKDouble(3.14), isFalse);
+    });
+
+    test('CKBool equality', () {
+      expect(const CKBool(true), const CKBool(true));
+      expect(const CKBool(true) == const CKBool(false), isFalse);
+    });
+
+    test('CKDateTime equality on absolute instant', () {
+      final utc = DateTime.utc(2026, 4, 24, 12, 0, 0, 123);
+      final localEquiv = utc.toLocal();
+      expect(CKDateTime(utc), CKDateTime(localEquiv));
+      expect(
+        CKDateTime(utc) == CKDateTime(utc.add(const Duration(milliseconds: 1))),
+        isFalse,
+      );
+    });
+
+    test('heterogeneous subtypes never compare equal', () {
+      // A Boolean true and an Int 1 shouldn't compare equal. Trust-rule
+      // reason: a toggle (bool) and a count (int) must never silently
+      // alias, even though their JSON/channel form might be
+      // indistinguishable on an untyped path.
+      expect(const CKBool(true) == const CKInt(1), isFalse);
+      expect(const CKString('1') == const CKInt(1), isFalse);
+    });
+  });
+
+  group('CloudKitRecord — equality + hash', () {
+    test('equal when type + name + field map all match', () {
+      const a = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {'note': CKString('ok'), 'kcal': CKInt(612)},
+      );
+      const b = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        // Different iteration order — must still compare equal since
+        // CKRecord field order isn't semantic.
+        fields: {'kcal': CKInt(612), 'note': CKString('ok')},
+      );
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('differs on recordType', () {
+      const a = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'x',
+        fields: {},
+      );
+      const b = CloudKitRecord(
+        recordType: 'OtherType',
+        recordName: 'x',
+        fields: {},
+      );
+      expect(a == b, isFalse);
+    });
+
+    test('differs on recordName', () {
+      const a = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'a',
+        fields: {},
+      );
+      const b = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'b',
+        fields: {},
+      );
+      expect(a == b, isFalse);
+    });
+
+    test('differs on field value', () {
+      const a = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'x',
+        fields: {'kcal': CKInt(612)},
+      );
+      const b = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'x',
+        fields: {'kcal': CKInt(613)},
+      );
+      expect(a == b, isFalse);
+    });
+  });
+
+  group('FakeCloudKitSource — record CRUD', () {
+    /// Helper: the canonical mixed-type spike record used across tests.
+    /// One field of each of the 5 supported CloudKit value types.
+    CloudKitRecord spikeRecord() {
+      return CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {
+          'title': const CKString('evening session'),
+          'reps': const CKInt(12),
+          'weightKg': const CKDouble(102.5),
+          'wasPr': const CKBool(true),
+          'when': CKDateTime(DateTime.utc(2026, 4, 24, 18, 30, 45, 789)),
+        },
+      );
+    }
+
+    test(
+      'round-trips a record with all 5 value types, preserving equality',
+      () async {
+        final fake = FakeCloudKitSource();
+        final saved = spikeRecord();
+        await fake.saveRecord(saved);
+
+        final fetched = await fake.getRecord(
+          recordType: 'HealthSpike',
+          recordName: 'spike-1',
+        );
+
+        expect(fetched, isNotNull);
+        expect(fetched, equals(saved));
+        // Spot-check DateTime precision — millisecond-accurate.
+        expect(
+          (fetched!.fields['when']! as CKDateTime).value.millisecondsSinceEpoch,
+          (saved.fields['when']! as CKDateTime).value.millisecondsSinceEpoch,
+        );
+        expect(fake.saveRecordCallCount, 1);
+        expect(fake.getRecordCallCount, 1);
+      },
+    );
+
+    test('returns null for record that was never saved', () async {
+      final fake = FakeCloudKitSource();
+      final fetched = await fake.getRecord(
+        recordType: 'HealthSpike',
+        recordName: 'missing',
+      );
+      expect(fetched, isNull);
+    });
+
+    test('saveRecord upserts — second save overwrites the first', () async {
+      final fake = FakeCloudKitSource();
+      const v1 = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {'kcal': CKInt(600)},
+      );
+      const v2 = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+        fields: {'kcal': CKInt(650)},
+      );
+      await fake.saveRecord(v1);
+      await fake.saveRecord(v2);
+
+      final fetched = await fake.getRecord(
+        recordType: 'HealthSpike',
+        recordName: 'spike-1',
+      );
+      expect(fetched, equals(v2));
+    });
+
+    test(
+      'recordType namespaces recordName — same name in different types do not collide',
+      () async {
+        final fake = FakeCloudKitSource();
+        const a = CloudKitRecord(
+          recordType: 'TypeA',
+          recordName: 'same',
+          fields: {'v': CKInt(1)},
+        );
+        const b = CloudKitRecord(
+          recordType: 'TypeB',
+          recordName: 'same',
+          fields: {'v': CKInt(2)},
+        );
+        await fake.saveRecord(a);
+        await fake.saveRecord(b);
+
+        expect(
+          await fake.getRecord(recordType: 'TypeA', recordName: 'same'),
+          equals(a),
+        );
+        expect(
+          await fake.getRecord(recordType: 'TypeB', recordName: 'same'),
+          equals(b),
+        );
+      },
+    );
+
+    test('configured error surfaces on saveRecord', () async {
+      final err = Exception('network down');
+      final fake = FakeCloudKitSource(error: err);
+      const record = CloudKitRecord(
+        recordType: 'HealthSpike',
+        recordName: 'x',
+        fields: {},
+      );
+      expect(() => fake.saveRecord(record), throwsA(same(err)));
+    });
+
+    test('configured error surfaces on getRecord', () async {
+      final err = Exception('network down');
+      final fake = FakeCloudKitSource(error: err);
+      expect(
+        () => fake.getRecord(recordType: 'HealthSpike', recordName: 'x'),
+        throwsA(same(err)),
+      );
+    });
+  });
 }
