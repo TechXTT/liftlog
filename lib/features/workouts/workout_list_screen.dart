@@ -6,6 +6,7 @@ import '../../providers/app_providers.dart';
 import '../../sources/health_kit/health_source.dart';
 import '../../ui/labels.dart';
 import '../food/date_label.dart';
+import '../routines/routine_list_screen.dart';
 import 'hk_workout_providers.dart';
 import 'workout_providers.dart';
 import 'workout_session_screen.dart';
@@ -20,7 +21,16 @@ class WorkoutListScreen extends ConsumerWidget {
     final hkWorkouts = ref.watch(hkWorkoutsLast90dProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Workouts')),
+      appBar: AppBar(
+        title: const Text('Workouts'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.format_list_bulleted),
+            tooltip: 'Routines',
+            onPressed: () => _openRoutines(context),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _startSession(context, ref),
         icon: const Icon(Icons.add),
@@ -169,6 +179,12 @@ class WorkoutListScreen extends ConsumerWidget {
       MaterialPageRoute(
         builder: (_) => WorkoutSessionScreen(sessionId: session.id),
       ),
+    );
+  }
+
+  void _openRoutines(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RoutineListScreen()),
     );
   }
 }
