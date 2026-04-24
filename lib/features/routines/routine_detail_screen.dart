@@ -73,8 +73,19 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
     });
   }
 
-  Future<void> _startWorkout() async {
+  Future<void> _startWorkout(Routine routine) async {
     if (_starting) return;
+    // Pre-populate the note field from the routine's notes column, if
+    // present. The user can still edit or clear before confirm — this
+    // is a helpful default, not a silent mutation (trust rule: every
+    // decision is overridable).
+    final result = await showDialog<_StartConfirmResult>(
+      context: context,
+      builder: (ctx) =>
+          _StartConfirmDialog(initialNote: routine.notes ?? ''),
+    );
+    if (result == null) return;
+    if (!mounted) return;
     setState(() => _starting = true);
     final service = StartFromRoutineService(
       routineRepo: ref.read(routineRepositoryProvider),
@@ -86,6 +97,7 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
       final sessionId = await service.start(
         widget.routineId,
         now: DateTime.now(),
+        note: result.note,
       );
       if (!mounted) return;
       // `pushReplacement` so back navigation from the session screen
@@ -130,7 +142,7 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
             view: view,
             starting: _starting,
             onEdit: () => _openEdit(view.routine!),
-            onStart: _startWorkout,
+            onStart: () => _startWorkout(view.routine!),
           );
         },
       ),
@@ -256,5 +268,69 @@ class _LineView {
     }
     if (parts.isEmpty) return 'No targets set';
     return parts.join(' · ');
+  }
+}
+
+/// Result returned from the start-from-routine confirm dialog. `null`
+/// return from `showDialog` means the user cancelled — no session is
+/// created. A non-null result carries the (possibly empty) note; the
+/// service normalizes empty → `null` before persisting.
+class _StartConfirmResult {
+  const _StartConfirmResult(this.note);
+  final String? note;
+}
+
+/// Confirm step before seeding a session from a routine. The user can
+/// edit or clear the pre-populated note (from `Routines.notes`) before
+/// tapping Start. Cancel aborts — no session is created.
+class _StartConfirmDialog extends StatefulWidget {
+  const _StartConfirmDialog({required this.initialNote});
+
+  final String initialNote;
+
+  @override
+  State<_StartConfirmDialog> createState() => _StartConfirmDialogState();
+}
+
+class _StartConfirmDialogState extends State<_StartConfirmDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialNote);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Start workout'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 4,
+        decoration: const InputDecoration(
+          hintText: 'Optional note (leave blank to skip)',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context)
+              .pop(_StartConfirmResult(_controller.text)),
+          child: const Text('Start'),
+        ),
+      ],
+    );
   }
 }

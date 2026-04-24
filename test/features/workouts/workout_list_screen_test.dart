@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liftlog_app/data/database.dart';
 import 'package:liftlog_app/data/repositories/workout_session_repository.dart';
 import 'package:liftlog_app/features/workouts/workout_list_screen.dart';
+import 'package:liftlog_app/features/workouts/workout_session_screen.dart';
 import 'package:liftlog_app/providers/app_providers.dart';
 import 'package:liftlog_app/sources/health_kit/health_source.dart';
 import 'package:liftlog_app/sources/health_kit/health_source_fake.dart';
@@ -120,6 +121,83 @@ void main() {
       await _drainDriftTimers(tester);
     },
   );
+
+  testWidgets('Start workout dialog persists note on the new session', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(hk: HealthSourceFake.notAuthorized()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Start workout'));
+    await tester.pumpAndSettle();
+
+    // Start dialog is up.
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    await tester.enterText(
+      find.byType(TextField),
+      'Heavy day — deadlift focus',
+    );
+    await tester.tap(find.widgetWithText(TextButton, 'Start'));
+    await tester.pumpAndSettle();
+
+    // Navigated to session screen.
+    expect(find.byType(WorkoutSessionScreen), findsOneWidget);
+
+    // The single created session has the note persisted.
+    final repo = WorkoutSessionRepository(db);
+    final all = await repo.listAll();
+    expect(all, hasLength(1));
+    expect(all.single.note, 'Heavy day — deadlift focus');
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('Start workout dialog with empty note persists null', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(hk: HealthSourceFake.notAuthorized()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Start workout'));
+    await tester.pumpAndSettle();
+
+    // Leave field blank; tap Start.
+    await tester.tap(find.widgetWithText(TextButton, 'Start'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(WorkoutSessionScreen), findsOneWidget);
+    final repo = WorkoutSessionRepository(db);
+    final all = await repo.listAll();
+    expect(all, hasLength(1));
+    expect(
+      all.single.note,
+      isNull,
+      reason: 'empty string normalizes to null (no empty-string columns)',
+    );
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets('Start workout dialog Cancel aborts (no session created)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(hk: HealthSourceFake.notAuthorized()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Start workout'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    // No navigation; no session.
+    expect(find.byType(WorkoutSessionScreen), findsNothing);
+    final repo = WorkoutSessionRepository(db);
+    expect(await repo.listAll(), isEmpty);
+
+    await _drainDriftTimers(tester);
+  });
 }
 
 Future<void> _drainDriftTimers(WidgetTester tester) async {

@@ -142,6 +142,56 @@ void main() {
     );
   });
 
+  group('updateNote', () {
+    test('persists a non-null note and round-trips', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 23),
+      ));
+
+      await sessions.updateNote(id, 'Felt strong today');
+      final row = await sessions.findById(id);
+      expect(row, isNotNull);
+      expect(row!.note, 'Felt strong today');
+    });
+
+    test('empty string and whitespace normalize to null', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 23),
+        note: const Value('Initial'),
+      ));
+
+      // Clear via empty string.
+      await sessions.updateNote(id, '');
+      expect((await sessions.findById(id))!.note, isNull);
+
+      // Whitespace-only also normalizes to null.
+      await sessions.updateNote(id, '   ');
+      expect((await sessions.findById(id))!.note, isNull);
+
+      // Explicit null clears too.
+      await sessions.updateNote(id, 'something');
+      await sessions.updateNote(id, null);
+      expect((await sessions.findById(id))!.note, isNull);
+    });
+
+    test('overwrites existing note (no silent preserve)', () async {
+      final id = await sessions.add(WorkoutSessionsCompanion.insert(
+        startedAt: DateTime(2026, 4, 23),
+        note: const Value('first'),
+      ));
+
+      await sessions.updateNote(id, 'second');
+      expect((await sessions.findById(id))!.note, 'second');
+    });
+
+    test('missing session id throws StateError', () async {
+      await expectLater(
+        sessions.updateNote(999, 'note'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
   group('listRecentDistinctExerciseNames', () {
     test('empty DB returns an empty list', () async {
       expect(await sets.listRecentDistinctExerciseNames(), isEmpty);
