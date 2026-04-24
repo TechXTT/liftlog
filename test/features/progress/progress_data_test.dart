@@ -793,4 +793,256 @@ void main() {
       expect(s.avgProteinGPerDay, closeTo(25.0, 0.0001));
     });
   });
+
+  group('latestHRVSdnn', () {
+    final now = DateTime(2026, 4, 23, 12);
+
+    test('empty list returns null', () {
+      expect(latestHRVSdnn(const [], now), isNull);
+    });
+
+    test('sample inside the 48h window returns its SDNN', () {
+      final samples = [
+        HKHRVSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 6)),
+          sdnnMs: 47.0,
+        ),
+      ];
+      expect(latestHRVSdnn(samples, now), 47.0);
+    });
+
+    test('sample older than 48h is ignored', () {
+      final samples = [
+        HKHRVSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 72)),
+          sdnnMs: 47.0,
+        ),
+      ];
+      expect(latestHRVSdnn(samples, now), isNull);
+    });
+
+    test('sample exactly at the 48h cutoff is excluded (strict isAfter)', () {
+      // cutoff = now - 48h, and the filter uses isAfter(cutoff) which is
+      // strict — a sample at the cutoff instant does NOT count.
+      final samples = [
+        HKHRVSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 48)),
+          sdnnMs: 50.0,
+        ),
+      ];
+      expect(latestHRVSdnn(samples, now), isNull);
+    });
+
+    test('multiple in-window samples: newest wins', () {
+      final samples = [
+        HKHRVSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 36)),
+          sdnnMs: 40.0,
+        ),
+        HKHRVSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 3)),
+          sdnnMs: 52.0,
+        ),
+        HKHRVSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 18)),
+          sdnnMs: 45.0,
+        ),
+      ];
+      expect(latestHRVSdnn(samples, now), 52.0);
+    });
+  });
+
+  group('latestRestingHRBpm', () {
+    final now = DateTime(2026, 4, 23, 12);
+
+    test('empty list returns null', () {
+      expect(latestRestingHRBpm(const [], now), isNull);
+    });
+
+    test('sample inside the 48h window returns its BPM', () {
+      final samples = [
+        HKRestingHRSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 4)),
+          bpm: 58.0,
+        ),
+      ];
+      expect(latestRestingHRBpm(samples, now), 58.0);
+    });
+
+    test('sample older than 48h is ignored', () {
+      final samples = [
+        HKRestingHRSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 100)),
+          bpm: 58.0,
+        ),
+      ];
+      expect(latestRestingHRBpm(samples, now), isNull);
+    });
+
+    test('multiple in-window samples: newest wins', () {
+      final samples = [
+        HKRestingHRSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 40)),
+          bpm: 62.0,
+        ),
+        HKRestingHRSample(
+          sourceId: 'com.apple.Health',
+          timestamp: now.subtract(const Duration(hours: 2)),
+          bpm: 59.0,
+        ),
+      ];
+      expect(latestRestingHRBpm(samples, now), 59.0);
+    });
+  });
+
+  group('lastNightSleepDuration', () {
+    // Anchor "now" at Thu 2026-04-23 10:00 — the last-night window is
+    // Wed 20:00 through Thu 12:00 local.
+    final now = DateTime(2026, 4, 23, 10);
+
+    HKSleepStageSample sleep(DateTime start, DateTime end, SleepStage stage) =>
+        HKSleepStageSample(
+          sourceId: 'com.apple.Health',
+          start: start,
+          end: end,
+          stage: stage,
+        );
+
+    test('empty list returns null', () {
+      expect(lastNightSleepDuration(const [], now), isNull);
+    });
+
+    test('only asleep-* intervals contribute, totals >= 30 min', () {
+      final samples = [
+        sleep(
+          DateTime(2026, 4, 22, 23),
+          DateTime(2026, 4, 23, 2),
+          SleepStage.asleepCore,
+        ), // 3h
+        sleep(
+          DateTime(2026, 4, 23, 2),
+          DateTime(2026, 4, 23, 3),
+          SleepStage.asleepDeep,
+        ), // 1h
+        sleep(
+          DateTime(2026, 4, 23, 3),
+          DateTime(2026, 4, 23, 6),
+          SleepStage.asleepREM,
+        ), // 3h
+        sleep(
+          DateTime(2026, 4, 23, 6),
+          DateTime(2026, 4, 23, 7),
+          SleepStage.asleepUnspecified,
+        ), // 1h
+      ];
+      expect(
+        lastNightSleepDuration(samples, now),
+        const Duration(hours: 8),
+      );
+    });
+
+    test('inBed and awake intervals are ignored', () {
+      final samples = [
+        // 30 min of actual sleep → enough to clear the 30 min floor.
+        sleep(
+          DateTime(2026, 4, 23, 3),
+          DateTime(2026, 4, 23, 3, 30),
+          SleepStage.asleepCore,
+        ),
+        // 8 hours of inBed + awake — must NOT contribute.
+        sleep(
+          DateTime(2026, 4, 22, 22),
+          DateTime(2026, 4, 23, 6),
+          SleepStage.inBed,
+        ),
+        sleep(
+          DateTime(2026, 4, 23, 4),
+          DateTime(2026, 4, 23, 5),
+          SleepStage.awake,
+        ),
+      ];
+      expect(
+        lastNightSleepDuration(samples, now),
+        const Duration(minutes: 30),
+      );
+    });
+
+    test('interval before the window start is clipped (early portion dropped)',
+        () {
+      // 19:00 → 22:00 Wed, but window starts 20:00 → only 20:00–22:00
+      // (2h) counts. Add another 2h in-window to stay above the 30-min
+      // floor visibly.
+      final samples = [
+        sleep(
+          DateTime(2026, 4, 22, 19),
+          DateTime(2026, 4, 22, 22),
+          SleepStage.asleepCore,
+        ),
+        sleep(
+          DateTime(2026, 4, 22, 22),
+          DateTime(2026, 4, 23, 0),
+          SleepStage.asleepCore,
+        ),
+      ];
+      expect(
+        lastNightSleepDuration(samples, now),
+        const Duration(hours: 4),
+      );
+    });
+
+    test('interval after the window end is clipped (late portion dropped)',
+        () {
+      // 10:00 → 14:00 Thu, window ends 12:00 → only 10:00–12:00 (2h) counts.
+      final samples = [
+        sleep(
+          DateTime(2026, 4, 23, 10),
+          DateTime(2026, 4, 23, 14),
+          SleepStage.asleepCore,
+        ),
+      ];
+      expect(
+        lastNightSleepDuration(samples, now),
+        const Duration(hours: 2),
+      );
+    });
+
+    test('total below 30 min returns null', () {
+      final samples = [
+        // 15 min total asleep — below the floor.
+        sleep(
+          DateTime(2026, 4, 23, 3),
+          DateTime(2026, 4, 23, 3, 15),
+          SleepStage.asleepCore,
+        ),
+      ];
+      expect(lastNightSleepDuration(samples, now), isNull);
+    });
+
+    test('fully-before or fully-after the window: ignored entirely', () {
+      final samples = [
+        // Tue 10:00–12:00 — well before the window.
+        sleep(
+          DateTime(2026, 4, 22, 10),
+          DateTime(2026, 4, 22, 12),
+          SleepStage.asleepCore,
+        ),
+        // Thu 13:00–15:00 — after the 12:00 window end.
+        sleep(
+          DateTime(2026, 4, 23, 13),
+          DateTime(2026, 4, 23, 15),
+          SleepStage.asleepDeep,
+        ),
+      ];
+      expect(lastNightSleepDuration(samples, now), isNull);
+    });
+  });
 }

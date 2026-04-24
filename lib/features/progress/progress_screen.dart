@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ui/labels.dart';
+import 'hk_signal_tiles.dart';
 import 'kcal_bars.dart';
 import 'progress_data.dart';
 import 'progress_providers.dart';
@@ -27,9 +28,12 @@ class ProgressScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
-          // Order: summary card (headline) → window selector (re-slice) →
-          // charts (deep-dive). Rationale in the issue (#34).
+          // Order: summary card (headline) → HK signal tiles (recovery
+          // signals, raw numbers only) → window selector (re-slice) →
+          // charts (deep-dive). Rationale in the issue (#34 for summary,
+          // #62 for the HK signal tiles).
           const SummaryCard(),
+          const HKSignalTilesRow(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: SizedBox(

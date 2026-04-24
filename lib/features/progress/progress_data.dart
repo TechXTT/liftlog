@@ -544,3 +544,84 @@ ProgressSummary buildProgressSummary({
     sessionsCompleted: sessionsCompleted,
   );
 }
+
+/// Latest HRV SDNN value (ms) from samples, restricted to the last 48h
+/// before [now]. Returns `null` when no sample falls inside that window —
+/// the tile then renders an em-dash.
+///
+/// We deliberately refuse to surface HRV older than 48h as "current": the
+/// signal changes meaning rapidly and stale data presented as live would
+/// be dishonest (trust rule — signal, not judgment; no silent fallbacks).
+double? latestHRVSdnn(List<HKHRVSample> samples, DateTime now) {
+  final cutoff = now.subtract(const Duration(hours: 48));
+  final recent = [
+    for (final s in samples)
+      if (s.timestamp.isAfter(cutoff)) s,
+  ];
+  if (recent.isEmpty) return null;
+  recent.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  return recent.first.sdnnMs;
+}
+
+/// Latest resting-HR value (BPM) from samples, restricted to the last 48h.
+/// Same shape + rationale as [latestHRVSdnn].
+double? latestRestingHRBpm(List<HKRestingHRSample> samples, DateTime now) {
+  final cutoff = now.subtract(const Duration(hours: 48));
+  final recent = [
+    for (final s in samples)
+      if (s.timestamp.isAfter(cutoff)) s,
+  ];
+  if (recent.isEmpty) return null;
+  recent.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  return recent.first.bpm;
+}
+
+/// Total "last night" sleep duration — the sum of asleep-* stage intervals
+/// inside the civil window 20:00 yesterday → 12:00 today. Returns `null`
+/// when the summed duration is less than 30 minutes — too thin to surface
+/// as a meaningful "last night" number; better to render an em-dash.
+///
+/// The window is derived from local-civil midnights, so on DST transition
+/// nights the wall-clock width differs from a normal 16h: ~15h on spring
+/// forward, ~17h on fall back. That's intentional — we're answering
+/// "what happened between 8pm yesterday and noon today in the user's
+/// local time" — following civil time across a clock change is the
+/// correct behavior.
+///
+/// Intervals that straddle the window edges are clipped so only the
+/// in-window portion counts. [SleepStage.inBed] and [SleepStage.awake]
+/// are deliberately excluded — `inBed` is a presence marker, `awake`
+/// obviously isn't sleep. The switch is exhaustive per the canonical-enum
+/// rule (no `default`); adding a new `SleepStage` value will surface as
+/// a compile error forcing a decision here.
+Duration? lastNightSleepDuration(
+  List<HKSleepStageSample> samples,
+  DateTime now,
+) {
+  final windowStart = DateTime(now.year, now.month, now.day - 1, 20);
+  final windowEnd = DateTime(now.year, now.month, now.day, 12);
+  var total = Duration.zero;
+  for (final sample in samples) {
+    // Skip intervals that don't touch the window at all.
+    if (!sample.end.isAfter(windowStart)) continue;
+    if (!sample.start.isBefore(windowEnd)) continue;
+    // Clip to the window so boundary-straddling intervals only
+    // contribute their in-window portion.
+    final start =
+        sample.start.isAfter(windowStart) ? sample.start : windowStart;
+    final end = sample.end.isBefore(windowEnd) ? sample.end : windowEnd;
+    switch (sample.stage) {
+      case SleepStage.asleepCore:
+      case SleepStage.asleepDeep:
+      case SleepStage.asleepREM:
+      case SleepStage.asleepUnspecified:
+        total += end.difference(start);
+      case SleepStage.awake:
+      case SleepStage.inBed:
+        // Deliberately excluded; see doc comment.
+        break;
+    }
+  }
+  if (total < const Duration(minutes: 30)) return null;
+  return total;
+}
