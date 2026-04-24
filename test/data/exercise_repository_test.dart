@@ -94,4 +94,26 @@ void main() {
     final rows = await repo.watchAll().first;
     expect(rows.map((r) => r.canonicalName).toList(), ['Squat', 'Deadlift']);
   });
+
+  test('addIfMissingUserEntered is the feature-facing wrapper over addIfMissing',
+      () async {
+    // Feature code (lib/features/**) must not reference `Source.` directly
+    // (see test/arch/data_access_boundary_test.dart Rule 4). The set-form
+    // picker calls this wrapper; it must behave identically to
+    // addIfMissing(name, source: Source.userEntered).
+    final viaWrapper = await repo.addIfMissingUserEntered('Bench Press');
+    expect(viaWrapper.canonicalName, 'Bench Press');
+
+    // Second call is idempotent — UNIQUE on canonicalName + insertOrIgnore.
+    final again = await repo.addIfMissingUserEntered('Bench Press');
+    expect(again.id, viaWrapper.id);
+
+    // And the underlying addIfMissing returns the same row on a third
+    // call — proving the wrapper and the raw API share storage.
+    final raw =
+        await repo.addIfMissing('Bench Press', source: Source.userEntered);
+    expect(raw.id, viaWrapper.id);
+
+    expect(await repo.listAll(), hasLength(1));
+  });
 }
