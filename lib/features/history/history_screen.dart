@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ui/delete_confirm.dart';
 import '../../ui/formatters.dart';
 import '../../ui/show_save_error.dart';
 import '../export/export_controller.dart';
+import '../export/import_controller.dart';
+import '../export/import_service.dart';
 import '../food/date_label.dart';
 import '../workouts/workout_session_screen.dart';
 import 'history_providers.dart';
@@ -73,6 +76,9 @@ class HistoryScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           const _ExportSection(),
+          const SizedBox(height: 12),
+          const _ImportSection(),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -94,7 +100,7 @@ class _ExportSection extends ConsumerWidget {
     final busy = state.isLoading;
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Center(
         child: FilledButton.tonalIcon(
           onPressed: busy
@@ -121,6 +127,170 @@ class _ExportSection extends ConsumerWidget {
   }
 }
 
+/// Import-all-data entry point. Sits directly below the export button
+/// (12pt gap, mirrored styling) so the "backup / restore" pair reads as
+/// a unit.
+///
+/// Flow:
+///   1. Tap → iOS document picker (JSON only).
+///   2. Parse happens in safe mode — if the payload is malformed or the
+///      format_version doesn't match, SnackBar with the reason and bail
+///      BEFORE asking any destructive confirms.
+///   3. If safe-mode import returns `ImportDatabaseNotEmpty`, show the
+///      first destructive confirm (names the row count), then a second
+///      destructive amplifier. Only on both confirms do we call
+///      `pickAndImport(replace: true)`.
+///   4. If safe-mode already succeeded (empty DB), we show the
+///      per-entity counts as the success SnackBar and stop.
+///
+/// Trust rules enforced:
+///   - Every destructive path goes through `showDeleteConfirm`.
+///   - Non-success `ImportResult`s surface specific SnackBars — no
+///     silent swallows.
+///   - Button is disabled for the whole round-trip so a double-tap
+///     can't race two file pickers.
+class _ImportSection extends ConsumerWidget {
+  const _ImportSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(importControllerProvider);
+    final busy = state.isLoading;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: busy ? null : () => _onTap(context, ref),
+          icon: const Icon(Icons.file_download),
+          label: const Text('Import all data (replaces current data)'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onTap(BuildContext context, WidgetRef ref) async {
+    final controller = ref.read(importControllerProvider.notifier);
+
+    // First pass: safe mode. Parses + validates; only touches the DB
+    // if it's already empty. This gives us a clean place to surface
+    // malformed / version-mismatch failures without a destructive prompt.
+    final ImportAttempt first;
+    try {
+      first = await controller.pickAndImport(replace: false);
+    } catch (e) {
+      if (context.mounted) showSaveError(context, 'import data', e);
+      return;
+    }
+
+    if (first is ImportCancelled) return; // quiet cancel, per picker norms
+    final firstResult = (first as ImportCompleted).result;
+
+    switch (firstResult) {
+      case ImportSuccess(:final rowsImported):
+        if (context.mounted) {
+          showSaveSuccess(context, 'Imported $rowsImported entries.');
+        }
+        return;
+      case ImportFormatVersionMismatch(:final got, :final expected):
+        if (context.mounted) {
+          showSaveError(
+            context,
+            'import data',
+            'format_version "$got" is not supported '
+                '(this app expects "$expected").',
+          );
+        }
+        return;
+      case ImportMalformed(:final reason):
+        if (context.mounted) {
+          showSaveError(context, 'import data', reason);
+        }
+        return;
+      case ImportDatabaseNotEmpty(:final existingRowCount):
+        // Fall through to destructive-confirm flow below.
+        if (!context.mounted) return;
+        await _confirmAndReplace(context, ref, existingRowCount);
+        return;
+    }
+  }
+
+  /// Two-stage destructive confirm. Both use `showDeleteConfirm` so the
+  /// `Delete` button picks up the red destructive styling. Cancel at
+  /// either stage leaves the DB unchanged.
+  Future<void> _confirmAndReplace(
+    BuildContext context,
+    WidgetRef ref,
+    int existingRowCount,
+  ) async {
+    final first = await showDeleteConfirm(
+      context,
+      title: 'Replace all current data?',
+      message:
+          'Import will replace your local data with the contents of the '
+          'picked file. This cannot be undone.',
+    );
+    if (!first) return;
+    if (!context.mounted) return;
+
+    final second = await showDeleteConfirm(
+      context,
+      title: 'Are you sure?',
+      message:
+          'Your local DB has $existingRowCount rows. '
+          'Import will replace them. Continue?',
+    );
+    if (!second) return;
+    if (!context.mounted) return;
+
+    final controller = ref.read(importControllerProvider.notifier);
+    final ImportAttempt attempt;
+    try {
+      attempt = await controller.pickAndImport(replace: true);
+    } catch (e) {
+      if (context.mounted) showSaveError(context, 'import data', e);
+      return;
+    }
+
+    if (attempt is ImportCancelled) return;
+    final result = (attempt as ImportCompleted).result;
+
+    switch (result) {
+      case ImportSuccess(:final rowsImported):
+        if (context.mounted) {
+          showSaveSuccess(context, 'Imported $rowsImported entries.');
+        }
+        return;
+      case ImportFormatVersionMismatch(:final got, :final expected):
+        if (context.mounted) {
+          showSaveError(
+            context,
+            'import data',
+            'format_version "$got" is not supported '
+                '(this app expects "$expected").',
+          );
+        }
+        return;
+      case ImportMalformed(:final reason):
+        if (context.mounted) {
+          showSaveError(context, 'import data', reason);
+        }
+        return;
+      case ImportDatabaseNotEmpty():
+        // Can't happen on the replace path (service doesn't check), but
+        // switch is exhaustive — surface defensively.
+        if (context.mounted) {
+          showSaveError(
+            context,
+            'import data',
+            'Unexpected non-empty DB during replace.',
+          );
+        }
+        return;
+    }
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.label});
   final String label;
@@ -129,10 +299,7 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.titleMedium,
-      ),
+      child: Text(label, style: Theme.of(context).textTheme.titleMedium),
     );
   }
 }

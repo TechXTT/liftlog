@@ -29,6 +29,25 @@ dependencies:
   # discovery UX most users won't find.
   share_plus: ^13.1.0
 
+  # iOS document picker for inbound restore (data import, issue #41).
+  # `share_plus` is outbound only — no pub dep covers the inbound
+  # UIDocumentPickerViewController surface except `file_picker`. Pinned
+  # to the current stable major (11.x) per PR discipline; bumps require
+  # a justification in the PR body. (The 8.x line conflicts with
+  # `share_plus ^13` on `win32` constraints — 11.x resolves cleanly.)
+  file_picker: ^11.0.0
+
+# iOS-only app: `win32` is a transitive Dart FFI dep of `file_picker`
+# (^5.9.0) and `share_plus` (^6.0.1) whose version ranges don't overlap.
+# Neither version is actually loaded on iOS (the plugin code path is
+# native, not Dart FFI to Windows), so we pin to the older `5.9.x`
+# line to keep file_picker's Windows-platform source compilable under
+# `flutter test` on macOS (the Dart VM unconditionally compiles the
+# package's Windows code path). If LiftLog ever targets Windows,
+# revisit: share_plus 13.x on Windows would need the newer `^6` line.
+dependency_overrides:
+  win32: ^5.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
