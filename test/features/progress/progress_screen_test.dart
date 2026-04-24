@@ -10,6 +10,7 @@ import 'package:liftlog_app/data/repositories/body_weight_log_repository.dart';
 import 'package:liftlog_app/data/repositories/exercise_set_repository.dart';
 import 'package:liftlog_app/data/repositories/food_entry_repository.dart';
 import 'package:liftlog_app/data/repositories/workout_session_repository.dart';
+import 'package:liftlog_app/features/progress/hk_signal_tiles.dart';
 import 'package:liftlog_app/features/progress/progress_data.dart';
 import 'package:liftlog_app/features/progress/progress_providers.dart';
 import 'package:liftlog_app/features/progress/progress_screen.dart';
@@ -456,8 +457,17 @@ void main() {
     // Sessions completed: 1.
     expect(find.text('1'), findsOneWidget);
 
-    // No em-dash tiles when everything is populated.
-    expect(find.text('\u2014'), findsNothing);
+    // No em-dash in the summary card when all four metrics are populated.
+    // (The HK signal tile row below renders em-dashes in this test because
+    // the fake HealthSource is unauthorized — scope the assertion to the
+    // summary card only.)
+    expect(
+      find.descendant(
+        of: find.byType(SummaryCard),
+        matching: find.text('\u2014'),
+      ),
+      findsNothing,
+    );
 
     await _drainDriftTimers(tester);
   });
@@ -470,8 +480,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SummaryCard), findsOneWidget);
-    // Three em-dashes: kcal, protein, weight delta.
-    expect(find.text('\u2014'), findsNWidgets(3));
+    // Three em-dashes inside the summary card: kcal, protein, weight delta.
+    // (The HK tile row also renders em-dashes but lives outside the
+    // SummaryCard subtree — scope the assertion so the two don't conflate.)
+    expect(
+      find.descendant(
+        of: find.byType(SummaryCard),
+        matching: find.text('\u2014'),
+      ),
+      findsNWidgets(3),
+    );
     // Sessions completed shows 0, not em-dash.
     expect(find.text('0'), findsOneWidget);
 
@@ -551,6 +569,139 @@ void main() {
     await tester.pumpAndSettle();
     summary = await container.read(progressSummaryProvider.future);
     expect(summary.avgKcalPerDay, (4200 / 11).round());
+
+    await _drainDriftTimers(tester);
+  });
+
+  // -------------------------------------------------------------------
+  // HK signal tiles (issue #62 / S6.4). The tile row renders below the
+  // summary card on ProgressScreen. Three tiles: HRV / resting HR / sleep.
+  // -------------------------------------------------------------------
+
+  testWidgets(
+      'HK tiles: authorized + fake signals → three tiles render with '
+      'expected values', (tester) async {
+    // HRV SDNN 47 ms (6h ago) — should display "47" + "ms".
+    // Resting HR 58 bpm (4h ago) — should display "58" + "bpm".
+    // Sleep: 23:00–06:30 last night = 7h 30m → "7.5" + "h".
+    final hrv = [
+      HKHRVSample(
+        sourceId: 'com.apple.Health',
+        timestamp: fakeNow.subtract(const Duration(hours: 6)),
+        sdnnMs: 47.0,
+      ),
+    ];
+    final restingHR = [
+      HKRestingHRSample(
+        sourceId: 'com.apple.Health',
+        timestamp: fakeNow.subtract(const Duration(hours: 4)),
+        bpm: 58.0,
+      ),
+    ];
+    final sleep = [
+      HKSleepStageSample(
+        sourceId: 'com.apple.Health',
+        start: DateTime(2026, 4, 22, 23),
+        end: DateTime(2026, 4, 23, 6, 30),
+        stage: SleepStage.asleepCore,
+      ),
+    ];
+
+    await tester.pumpWidget(app(extra: [
+      healthSourceProvider.overrideWithValue(
+        HealthSourceFake.authorizedWithSignals(
+          hrv: hrv,
+          restingHR: restingHR,
+          sleep: sleep,
+        ),
+      ),
+    ]));
+    await tester.pumpAndSettle();
+
+    // Three labels present exactly once — confirms the row renders.
+    expect(find.text('HRV SDNN'), findsOneWidget);
+    expect(find.text('Resting HR'), findsOneWidget);
+    expect(find.text('Sleep last night'), findsOneWidget);
+
+    // Values + units all render.
+    expect(find.text('47'), findsOneWidget);
+    expect(find.text('ms'), findsOneWidget);
+    expect(find.text('58'), findsOneWidget);
+    expect(find.text('bpm'), findsOneWidget);
+    expect(find.text('7.5'), findsOneWidget);
+    expect(find.text('h'), findsOneWidget);
+
+    // No em-dash anywhere across the three tiles — all values present.
+    // The summary card also has no nulls here (empty DB means all four
+    // metrics are em-dash there), so narrow the search to the tile row.
+    expect(
+      find.descendant(
+        of: find.byType(HKSignalTilesRow),
+        matching: find.text('\u2014'),
+      ),
+      findsNothing,
+    );
+    // No auth hint: we ARE authorized.
+    expect(find.text('Enable HealthKit in Settings'), findsNothing);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets(
+      'HK tiles: not authorized → three em-dashes + three "Enable '
+      'HealthKit in Settings" hints', (tester) async {
+    // Default `app()` already overrides healthSourceProvider with
+    // HealthSourceFake.notAuthorized().
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HKSignalTilesRow), findsOneWidget);
+
+    // Three em-dashes in the tile row (one per tile).
+    expect(
+      find.descendant(
+        of: find.byType(HKSignalTilesRow),
+        matching: find.text('\u2014'),
+      ),
+      findsNWidgets(3),
+    );
+    // Auth hint renders once per tile → three total.
+    expect(
+      find.text('Enable HealthKit in Settings'),
+      findsNWidgets(3),
+    );
+    // Labels still there regardless of auth state.
+    expect(find.text('HRV SDNN'), findsOneWidget);
+    expect(find.text('Resting HR'), findsOneWidget);
+    expect(find.text('Sleep last night'), findsOneWidget);
+
+    await _drainDriftTimers(tester);
+  });
+
+  testWidgets(
+      'HK tiles: authorized + no data → three em-dashes with no auth hint',
+      (tester) async {
+    await tester.pumpWidget(app(extra: [
+      healthSourceProvider.overrideWithValue(
+        HealthSourceFake.authorizedWithSignals(),
+      ),
+    ]));
+    await tester.pumpAndSettle();
+
+    // Three em-dashes: one per tile.
+    expect(
+      find.descendant(
+        of: find.byType(HKSignalTilesRow),
+        matching: find.text('\u2014'),
+      ),
+      findsNWidgets(3),
+    );
+    // NOT rendering the auth hint: we're authorized, just no data.
+    expect(find.text('Enable HealthKit in Settings'), findsNothing);
+    // Labels remain.
+    expect(find.text('HRV SDNN'), findsOneWidget);
+    expect(find.text('Resting HR'), findsOneWidget);
+    expect(find.text('Sleep last night'), findsOneWidget);
 
     await _drainDriftTimers(tester);
   });
