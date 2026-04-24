@@ -30,6 +30,16 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Diagnose toolchain (Xcode + SDK versions, available Xcodes)
+        # Temporary diagnostic step. Prints enough to decide whether iOS
+        # build failures are SDK-version, xcode-select, or pod-cache issues.
+        # Remove after the S4.3 CI saga resolves (see Runbooks.md).
+        run: |
+          echo "=== xcode-select -p ===" && sudo xcode-select -p
+          echo "=== xcodebuild -version ===" && xcodebuild -version
+          echo "=== iphoneos SDK version ===" && xcrun --sdk iphoneos --show-sdk-version
+          echo "=== Installed Xcodes in /Applications ===" && ls /Applications/ | grep -i xcode || true
+
       - name: Install dependencies
         run: flutter pub get
 
